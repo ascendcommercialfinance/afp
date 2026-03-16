@@ -154,12 +154,12 @@ function funder_script_shortcode() {
   background: rgba(0,0,0,0.45);
 }
 #compare-card {
-  width: 92%;
+  width: 100%;
   max-width: 1100px;
-  max-height: 88vh;
+  max-height: 100%;
   overflow: auto;
   background: #fff;
-  border-radius: 12px;
+  border-radius: 0px;
   padding: 20px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.25);
   position: relative;
@@ -786,19 +786,27 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        const totalResults = allResults.length;
+       // Use the filtered results array, not allResults
+const totalResults = results.length;
 
-        html += `
-            <div id="results-summary" style="
-                font-size:14px;
-                color:#555;
-                font-weight:500;
-                margin-bottom:14px;
-                text-align: center;
-            ">
-                Showing results (paginated)
-            </div>
-        `;
+// Get the user's loan amount
+const userLoan = computeUserLoanAndLtv();
+const loanAmount = userLoan.loanAmount;
+
+// Format the loan amount nicely (e.g., £150,000)
+const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
+
+html += `
+    <div id="results-summary" style="
+        font-size:14px;
+        color:#555;
+        font-weight:500;
+        margin-bottom:14px;
+        text-align: center;
+    ">
+        Showing ${totalResults} results for ${loanDisplay ? `'${loanDisplay}'` : "your criteria"}
+    </div>
+`;
 
         html += `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
@@ -1825,7 +1833,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Helper to check accepts first time buyers (sheet header: accepts_first_time)
     // Note: this refers to first time landlords per your sheet mapping
     function acceptsFirstTimeBuyers(item) {
-        const v = String(item.accepts_first_time || item.accepts_first_time_buyer || item.accepts_ftb || item.accepts_first_time_buyers || '').toLowerCase();
+        const v = String(item.accepts_first_time || item.accepts_first_time_buyer || item.canonical_ftl || item.accepts_first_time_buyers || '').toLowerCase();
         if (v === 'yes' || v === 'true' || v === '1') return 'Yes';
         if (v === 'no' || v === 'false' || v === '0') return 'No';
         return '—';
@@ -2164,124 +2172,162 @@ function openCompareCard() {
     thead.appendChild(headerRow);
     table.appendChild(thead);
 
+    function isBTLProduct(it) {
+    const id = String(it.matching_id || "").toUpperCase();
+    return id.startsWith("BTL");
+    }
+    console.log("COMPARE ITEMS:", items);
+    console.log("BTL DETECTION:", items.map(it => ({
+    id: it.funder_id || it.matching_id,
+    isBTL: isBTLProduct(it),
+    canonical_age: it.canonical_age
+    })));
     // Detect if any selected product is BTL
     const isAnyBTL = items.some(it => isBTLProduct(it));
+    console.log("isAnyBTL =", isAnyBTL);
+ // Define rows for BTL vs non-BTL
+const rows = isAnyBTL ? [
+    { key: 'product', label: 'Product' },
+    { key: 'amount_required', label: 'Amount required' },
+    { key: 'monthly_interest', label: 'Monthly interest (est.)' },
+    { key: 'rates_from', label: 'Rates from' },
+    { key: 'max_ltv', label: 'Max LTV' },
+    { key: 'max_term', label: 'Max Term' },
+    { key: 'fees', label: 'Fees' },
 
-    // Define rows for BTL vs non-BTL
-    const rows = isAnyBTL ? [
-        { key: 'product', label: 'Product' },
-        { key: 'amount_required', label: 'Amount required' },
-        { key: 'monthly_interest', label: 'Monthly interest (est.)' },
-        { key: 'rates_from', label: 'Rates from' },
-        { key: 'max_ltv', label: 'Max LTV' },
-        { key: 'max_term', label: 'Max Term' },
-        { key: 'fees', label: 'Fees' },
+    // NEW BTL FIELDS
+    { key: 'canonical_age', label: 'Age' },
+    { key: 'canonical_borrower', label: 'Borrower Type' },
+    { key: 'canonical_homeowner', label: 'Homeowner Status' },
+    { key: 'canonical_property_type', label: 'Property type' },
+    { key: 'canonical_min_income', label: 'Min Applicant Income' },
 
-        // NEW BTL FIELDS
-        { key: 'age', label: 'Age' },
-        { key: 'borrower', label: 'Borrower' },
-        { key: 'accepts_ftb', label: 'Accepts first time landlords' },
-        { key: 'property_type', label: 'Property type' },
-        { key: 'min_income', label: 'Min Applicant Income' },
+    { key: 'description', label: 'Description' },
+    { key: 'apply', label: '' }
+] : [
+    { key: 'product', label: 'Product' },
+    { key: 'amount_required', label: 'Amount required' },
+    { key: 'monthly_interest', label: 'Monthly interest (est.)' },
+    { key: 'rates_from', label: 'Rates from' },
+    { key: 'max_ltv', label: 'Max LTV' },
+    { key: 'max_term', label: 'Max Term' },
+    { key: 'fees', label: 'Fees' },
+    { key: 'description', label: 'Description' },
+    { key: 'apply', label: '' }
+];
 
-        { key: 'description', label: 'Description' },
-        { key: 'apply', label: '' }
-    ] : [
-        { key: 'product', label: 'Product' },
-        { key: 'amount_required', label: 'Amount required' },
-        { key: 'monthly_interest', label: 'Monthly interest (est.)' },
-        { key: 'rates_from', label: 'Rates from' },
-        { key: 'max_ltv', label: 'Max LTV' },
-        { key: 'max_term', label: 'Max Term' },
-        { key: 'fees', label: 'Fees' },
-        { key: 'description', label: 'Description' },
-        { key: 'apply', label: '' }
-    ];
+const tbody = document.createElement('tbody');
 
-    const tbody = document.createElement('tbody');
+// compute user loan once for monthly interest calculation
+const userLoan = computeUserLoanAndLtv();
 
-    // compute user loan once for monthly interest calculation
-    const userLoan = computeUserLoanAndLtv();
+rows.forEach(rowDef => {
+    const tr = document.createElement('tr');
+    const labelTd = document.createElement('th');
+    labelTd.innerText = rowDef.label;
+    tr.appendChild(labelTd);
 
-    rows.forEach(rowDef => {
-        const tr = document.createElement('tr');
-        const labelTd = document.createElement('th');
-        labelTd.innerText = rowDef.label;
-        tr.appendChild(labelTd);
+    items.forEach(it => {
+        const td = document.createElement('td');
 
-        items.forEach(it => {
-            const td = document.createElement('td');
+        if (rowDef.key === 'product') {
+            td.innerHTML = `<div style="font-weight:700; color:#149580;">${it.lending_product || it.product_name || it.caption || 'Option'}</div>`;
 
-            if (rowDef.key === 'product') {
-                td.innerHTML = `<div style="font-weight:700; color:#149580;">${it.lending_product || it.product_name || it.caption || 'Option'}</div>`;
+        } else if (rowDef.key === 'amount_required') {
+            const loan = userLoan.loanAmount;
+            td.innerText = loan !== null ? formatCurrencyZeroDecimals(loan) : '—';
 
-            } else if (rowDef.key === 'amount_required') {
-                const loan = userLoan.loanAmount;
-                td.innerText = loan !== null ? formatCurrencyZeroDecimals(loan) : '—';
-
-            } else if (rowDef.key === 'monthly_interest') {
-                const loan = userLoan.loanAmount;
-                const rate = numericRateFromRatesFrom(it);
-                if (loan !== null && rate !== null && !isNaN(loan) && !isNaN(rate)) {
-                    const monthly = (loan * (rate / 100)) / 12;
-                    td.innerText = formatCurrency(monthly);
-                } else {
-                    td.innerText = '—';
-                }
-
-            } else if (rowDef.key === 'rates_from') {
-                td.innerText = formatRateDisplay(it.rates_from || it.rates_from_display || it.rates_from_value || '');
-
-            } else if (rowDef.key === 'max_ltv') {
-                td.innerText = it.max_ltv ? (it.max_ltv + '%') : '—';
-
-            } else if (rowDef.key === 'max_term') {
-                td.innerText = it.max_term ? (it.max_term + ' years') : '—';
-
-            } else if (rowDef.key === 'fees') {
-                td.innerText = it.product_fee || it.fee || '—';
-
-            // NEW BTL FIELDS
-            } else if (rowDef.key === 'age') {
-                td.innerText = isBTLProduct(it) ? buildAgeString(it) : '—';
-
-            } else if (rowDef.key === 'borrower') {
-                td.innerText = isBTLProduct(it) ? buildBorrowerString(it) : '—';
-
-            } else if (rowDef.key === 'accepts_ftb') {
-                td.innerText = isBTLProduct(it) ? acceptsFirstTimeBuyers(it) : '—';
-
-            } else if (rowDef.key === 'property_type') {
-                td.innerText = isBTLProduct(it) ? buildPropertyTypeString(it) : '—';
-
-            } else if (rowDef.key === 'min_income') {
-                td.innerText = isBTLProduct(it) ? getMinIncome(it) : '—';
-
-            } else if (rowDef.key === 'description') {
-                td.innerText = it.description ? (it.description.substring(0,300) + (it.description.length>300?'…':'')) : '—';
-
-            } else if (rowDef.key === 'apply') {
-                const mid = String(it.matching_id || it.matching_id_value || it.id || it.product_id || it.lending_product || '').trim();
-                const btn = document.createElement('button');
-                btn.className = 'compare-product-apply';
-                btn.innerText = 'Apply';
-                btn.dataset.matchingId = mid;
-                btn.addEventListener('click', () => {
-                    showProgressForProduct(mid);
-                    closeCompareCard(false);
-                });
-                td.appendChild(btn);
-
+        } else if (rowDef.key === 'monthly_interest') {
+            const loan = userLoan.loanAmount;
+            const rate = numericRateFromRatesFrom(it);
+            if (loan !== null && rate !== null && !isNaN(loan) && !isNaN(rate)) {
+                const monthly = (loan * (rate / 100)) / 12;
+                td.innerText = formatCurrency(monthly);
             } else {
                 td.innerText = '—';
             }
 
-            tr.appendChild(td);
-        });
+        } else if (rowDef.key === 'rates_from') {
+            td.innerText = formatRateDisplay(it.rates_from || it.rates_from_display || it.rates_from_value || '');
 
-        tbody.appendChild(tr);
+        } else if (rowDef.key === 'max_ltv') {
+            td.innerText = it.max_ltv ? (it.max_ltv + '%') : '—';
+
+        } else if (rowDef.key === 'max_term') {
+            td.innerText = it.max_term ? (it.max_term + ' years') : '—';
+
+        } else if (rowDef.key === 'fees') {
+            td.innerText = it.product_fee || it.fee || '—';
+
+        // NEW BTL FIELDS
+} else if (rowDef.key === 'canonical_age') {
+    console.log("Rendering canonical_age for", it.funder_id, "=", it.canonical_age);
+    td.innerText = isBTLProduct(it) ? it.canonical_age : '—';
+
+} else if (rowDef.key === 'canonical_borrower') {
+    // Borrower Type: Limited company / Individual
+    if (isBTLProduct(it)) {
+        const raw = (it.borrower_type || "").toLowerCase();
+        let out = [];
+
+        if (raw.includes("ltd")) out.push("Limited company");
+        if (raw.includes("personal")) out.push("Individual");
+
+        td.innerText = out.length ? out.join(", ") : "—";
+    } else {
+        td.innerText = "—";
+    }
+
+} else if (rowDef.key === 'canonical_homeowner') {
+    // Homeowner: Homeowner required / Non‑homeowner allowed
+    if (isBTLProduct(it)) {
+        const req = (it.homeowner_required || "").toLowerCase();
+        td.innerText = req === "yes"
+            ? "Homeowner required"
+            : "Non‑homeowner allowed";
+    } else {
+        td.innerText = "—";
+    }
+
+} else if (rowDef.key === 'canonical_property_type') {
+    console.log("Rendering canonical_property_type for", it.funder_id, "=", it.canonical_property_type);
+    td.innerText = isBTLProduct(it) ? it.canonical_property_type : '—';
+
+} else if (rowDef.key === 'canonical_min_income') {
+    console.log("Rendering canonical_min_income for", it.funder_id, "=", it.canonical_min_income);
+    if (isBTLProduct(it)) {
+        const val = parseInt(it.canonical_min_income, 10);
+        td.innerText = isNaN(val) ? "—" : "£" + val.toLocaleString();
+    } else {
+        td.innerText = "—";
+    }
+
+} else if (rowDef.key === 'description') {
+    td.innerText = it.description
+        ? (it.description.substring(0, 300) + (it.description.length > 300 ? '…' : ''))
+        : '—';
+
+} else if (rowDef.key === 'apply') {
+    const mid = String(it.matching_id || it.matching_id_value || it.id || it.product_id || it.lending_product || '').trim();
+    const btn = document.createElement('button');
+    btn.className = 'compare-product-apply';
+    btn.innerText = 'Apply';
+    btn.dataset.matchingId = mid;
+    btn.addEventListener('click', () => {
+        showProgressForProduct(mid);
+        closeCompareCard(false);
+    });
+    td.appendChild(btn);
+
+} else {
+    td.innerText = '—';
+}
+
+tr.appendChild(td);
     });
 
+    tbody.appendChild(tr);
+});
     table.appendChild(tbody);
     content.appendChild(table);
 
