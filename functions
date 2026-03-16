@@ -1,0 +1,1554 @@
+<?php
+/**
+ * functions.php — Ascend CF child theme + funder matching engine
+ */
+
+/* ---------------------------------------------------------
+   DEBUG TOGGLES
+--------------------------------------------------------- */
+define('BTL_DEBUG_TOGGLE', true);
+define('COMM_DEBUG_TOGGLE', true);
+
+/* ---------------------------------------------------------
+   CHILD THEME STYLES
+--------------------------------------------------------- */
+function consultio_enqueue_styles() {
+    $parent_style = 'consultio-style';
+    wp_enqueue_style($parent_style, get_template_directory_uri() . '/style.css');
+    wp_enqueue_style('child-style', get_stylesheet_directory_uri() . '/style.css', [$parent_style]);
+}
+add_action('wp_enqueue_scripts', 'consultio_enqueue_styles');
+
+/* ---------------------------------------------------------
+   HIDE FORMINATOR SUCCESS MESSAGE (MAIN FORM)
+--------------------------------------------------------- */
+add_action('wp_enqueue_scripts', function () {
+    $css = "
+        .forminator-response-message {
+            display: none !important;
+        }
+        #progress-form-container .forminator-response-message {
+            display: block !important;
+        }
+    ";
+    wp_add_inline_style('consultio-style', $css);
+});
+
+/* ---------------------------------------------------------
+   GOOGLE SHEETS API READER
+--------------------------------------------------------- */
+function get_google_sheet_data($product_type) {
+    $sheet_id = '1dlRtldJD4MxtL4gLqy47fB9U09UZTr03jeYBB4gfqns';
+    $api_key  = 'AIzaSyDths-33jmqQ63UJLCe2LFTfemQuIQ38dI';
+
+    $sheet_name = $product_type;
+    $url        = "https://sheets.googleapis.com/v4/spreadsheets/$sheet_id/values/$sheet_name?key=$api_key";
+
+    $response = wp_remote_get($url, ['timeout' => 15]);
+    if (is_wp_error($response)) {
+        return false;
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+    if (!isset($body['values']) || !is_array($body['values'])) {
+        return false;
+    }
+
+    $rows    = [];
+    $headers = $body['values'][0];
+
+    foreach ($body['values'] as $index => $row) {
+        if ($index === 0) {
+            continue;
+        }
+        while (count($row) < count($headers)) {
+            $row[] = '';
+        }
+        $rows[] = array_combine($headers, $row);
+    }
+
+    return $rows;
+}
+
+/* ---------------------------------------------------------
+   UTILITIES
+--------------------------------------------------------- */
+function fm_debug_log($message, $context = []) {
+    $debug = get_option('funder_match_debug', false);
+    if (!$debug) {
+        return;
+    }
+    $entry = [
+        'time'    => gmdate('c'),
+        'message' => $message,
+        'context' => $context,
+    ];
+    error_log('[funder_match] ' . wp_json_encode($entry));
+}
+
+function fm_parse_number($value, $allow_percent = false) {
+    if ($value === null || $value === '') {
+        return null;
+    }
+    $v = (string) $value;
+    $v = trim($v);
+    if ($allow_percent) {
+        $v = str_replace('%', '', $v);
+    }
+    $v = preg_replace('/[^\d\.\-]/', '', $v);
+    if ($v === '' || $v === '-' || $v === '.') {
+        return null;
+    }
+    return (float) $v;
+}
+
+function fm_contains_term($haystack, $needle) {
+    if ($haystack === null || $haystack === '') {
+        return false;
+    }
+    $hay   = strtolower($haystack);
+    $need  = strtolower($needle);
+    $tokens = array_map('trim', explode(',', $hay));
+    foreach ($tokens as $t) {
+        if ($t === $need) {
+            return true;
+        }
+        if (strpos($t, $need) !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function fm_normalize_header($header) {
+    $h = trim($header);
+    $h = preg_replace('/[^\p{L}\p{N}_]+/u', '_', $h);
+    $h = strtolower($h);
+    return $h;
+}
+
+function fm_row_get($row, $candidates = []) {
+    foreach ($candidates as $c) {
+        if (isset($row[$c]) && $row[$c] !== '') {
+            return $row[$c];
+        }
+        $norm = fm_normalize_header($c);
+        if (isset($row[$norm]) && $row[$norm] !== '') {
+            return $row[$norm];
+        }
+    }
+    return '';
+}
+
+/**
+ * Normalize boolean-like flags from sheet values.
+ * Returns 'yes' for affirmative, 'no' for negative, '' for unknown/empty.
+ */
+function fm_normalize_flag($value) {
+    if ($value === null || $value === '') {
+        return '';
+    }
+    $v = strtolower(trim((string)$value));
+    if (in_array($v, ['yes', 'y', '1', 'true', 't'], true)) {
+        return 'yes';
+    }
+    if (in_array($v, ['no', 'n', '0', 'false', 'f'], true)) {
+        return 'no';
+    }
+    // Some sheets may have 'accept' / 'accepted' etc.
+    if (strpos($v, 'yes') !== false || strpos($v, 'accept') !== false) {
+        return 'yes';
+    }
+    if (strpos($v, 'no') !== false || strpos($v, 'not') !== false) {
+        return 'no';
+    }
+    return '';
+}
+
+/* ---------------------------------------------------------
+   AUTH HELPERS
+--------------------------------------------------------- */
+function fm_get_incoming_token() {
+    if (!empty($_SERVER['HTTP_X_FUNDER_MATCH_TOKEN'])) {
+        return $_SERVER['HTTP_X_FUNDER_MATCH_TOKEN'];
+    }
+    if (!empty($_SERVER['HTTP_X_API_TOKEN'])) {
+        return $_SERVER['HTTP_X_API_TOKEN'];
+    }
+    if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
+        $auth = $_SERVER['HTTP_AUTHORIZATION'];
+        if (stripos($auth, 'bearer ') === 0) {
+            return trim(substr($auth, 7));
+        }
+    }
+    return '';
+}
+
+function fm_is_same_origin_request() {
+    $origin  = $_SERVER['HTTP_ORIGIN']  ?? '';
+    $referer = $_SERVER['HTTP_REFERER'] ?? '';
+    $site    = get_site_url();
+
+    if ($origin && stripos($origin, $site) === 0) {
+        return true;
+    }
+    if ($referer && stripos($referer, $site) === 0) {
+        return true;
+    }
+    return false;
+}
+
+/* ---------------------------------------------------------
+   MATCH ENGINE
+--------------------------------------------------------- */
+function run_funder_matching() {
+    $raw  = file_get_contents("php://input");
+    $data = json_decode($raw, true);
+
+    file_put_contents(__DIR__ . '/forminator-log.txt', "RAW JSON:\n$raw\n\n", FILE_APPEND);
+
+    if (empty($data) || !is_array($data)) {
+        return [
+            'matches_found' => 0,
+            'results'       => [],
+            'log'           => "Empty or invalid payload",
+            'reason'        => 'empty_payload',
+        ];
+    }
+
+    $get = function ($key, $default = '') use ($data) {
+        if (!isset($data[$key])) {
+            return $default;
+        }
+        $v = $data[$key];
+        if (is_array($v) && isset($v['values'])) {
+            $first = reset($v['values']);
+            return $first !== false ? $first : $default;
+        }
+        return is_array($v) ? reset($v) : $v;
+    };
+
+    /* product detection */
+    $product_type_raw = '';
+    $product_type_raw = trim(strtolower($get('hidden-1', '')));
+    if (empty($product_type_raw)) {
+        $product_type_raw = trim(strtolower($get('radio-6', '')));
+    }
+    if (empty($product_type_raw)) {
+        $product_type_raw = trim(strtolower($get('radio-5', '')));
+    }
+    if (empty($product_type_raw)) {
+        $product_type_raw = trim(strtolower($get('radio-20', '')));
+    }
+    if (empty($product_type_raw)) {
+        $product_type_raw = trim(strtolower($get('product_type', '')));
+    }
+
+    $map = [
+        'btlmortgage'        => 'btlmortgage',
+        'btl'                => 'btlmortgage',
+        'buy to let'         => 'btlmortgage',
+        'buy-to-let'         => 'btlmortgage',
+        'commmortgage'       => 'commmortgage',
+        'comm'               => 'commmortgage',
+        'commercialmortgage' => 'commmortgage',
+        'commercial'         => 'commmortgage',
+    ];
+    $product_type = $map[$product_type_raw] ?? $product_type_raw;
+
+    fm_debug_log('Resolved product_type', ['raw' => $product_type_raw, 'mapped' => $product_type]);
+
+    /* load sheet */
+    $sheetData = get_google_sheet_data($product_type);
+    if (!$sheetData) {
+        return [
+            'matches_found' => 0,
+            'results'       => [],
+            'log'           => "No sheet data found for: $product_type",
+            'sheet_debug'   => ['sheet' => $product_type, 'rows' => 0],
+        ];
+    }
+
+    /* normalise values */
+    foreach ($sheetData as $rowIndex => $row) {
+        foreach ($row as $key => $value) {
+            $clean     = trim(preg_replace('/[\p{C}\p{Zl}\p{Zp}]/u', '', $value));
+            $sheetData[$rowIndex][$key] = $clean;
+        }
+    }
+    unset($row);
+
+    fm_debug_log('Sheet loaded', [
+        'sheet'          => $product_type,
+        'rows'           => count($sheetData),
+        'first_row_keys' => array_keys($sheetData[0] ?? []),
+    ]);
+
+    $matches     = [];
+    $diagnostics = [];
+
+    /* ---------------------------------------------------------
+       BTL ENGINE
+    --------------------------------------------------------- */
+    if ($product_type === 'btlmortgage') {
+        $purchase_type = strtolower(trim($get('radio-5', '')));
+        $habitable_raw = strtolower(trim($get('radio-3', '')));
+        $habitable     = ($habitable_raw === 'no') ? 'no' : 'yes';
+
+        $first_time_raw = strtolower(trim($get('radio-1', '')));
+        $homeowner_raw  = strtolower(trim($get('radio-2', '')));
+        $actual_age     = fm_parse_number($get('number-6', ''));
+
+        $ccj_raw        = strtolower(trim($get('radio-8', '')));
+        $recent_ccj_raw = strtolower(trim($get('radio-9', '')));
+        $missed_raw     = strtolower(trim($get('radio-10', '')));
+
+        // Fixed / variable selection
+        $user_rate_type = strtolower(trim($get('radio-21', '')));
+
+        // HMO / MUFB / Holiday Let
+        $user_hmo     = strtolower(trim($get('radio-18', '')));
+        $user_mufb    = strtolower(trim($get('radio-22', '')));
+        $user_holiday = strtolower(trim($get('radio-23', '')));
+
+        $loan_required = 0;
+        $ltv           = 0;
+
+
+        if ($purchase_type === 'purchase') {
+            $purchase_price = fm_parse_number($get('currency-3'));
+            $deposit        = fm_parse_number($get('currency-4'));
+            if ($purchase_price > 0) {
+                $loan_required = max(0, $purchase_price - ($deposit ?: 0));
+                $ltv           = ($loan_required / $purchase_price) * 100;
+            }
+        } else {
+            $property_value = fm_parse_number($get('currency-18'));
+            $outstanding    = fm_parse_number($get('currency-5'));
+            $additional     = fm_parse_number($get('currency-17'));
+            if ($property_value > 0) {
+                $loan_required = max(0, ($outstanding ?: 0) + ($additional ?: 0));
+                $ltv           = ($loan_required / $property_value) * 100;
+            }
+        }
+
+        $monthly_rent = fm_parse_number($get('currency-6'));
+
+        // iterate with index so we can generate deterministic fallback ids
+        foreach ($sheetData as $rowIndex => $row) {
+            error_log("=== NEW LENDER ROW START ===");
+            $funder_id   = fm_row_get($row, ['funder_id', 'id', 'internal_id']) ?: 'UNKNOWN';
+            $funder_name = fm_row_get($row, ['funder_name', 'name', 'lender_name']) ?: '';
+            $label       = trim($funder_id . ' ' . ($funder_name ? "($funder_name)" : ''));
+            $failures    = [];
+
+            $row_product_type = fm_row_get($row, ['product_type', 'product', 'type']);
+            if (
+                $row_product_type !== '' &&
+                !fm_contains_term($row_product_type, 'btl') &&
+                !fm_contains_term($row_product_type, 'purchase') &&
+                !fm_contains_term($row_product_type, 'remortgage')
+            ) {
+                if (
+                    !fm_contains_term($row_product_type, 'btl') &&
+                    !fm_contains_term($row_product_type, 'buy')
+                ) {
+                    $failures[] = "product_type mismatch";
+                }
+            }
+
+            // --- PURCHASE / REMORTGAGE MATCHING ---
+            $row_product_type = strtolower(trim(fm_row_get($row, ['product_type'])));
+
+            if ($purchase_type !== '' && $row_product_type !== '') {
+
+                $purchase_aliases = [
+                    'purchase'    => ['purchase', 'buy'],
+                    'remortgage'  => ['remortgage', 'refinance', 'refi', 're-mortgage']
+                ];
+
+                $matches_purchase_type = false;
+
+                foreach ($purchase_aliases[$purchase_type] as $alias) {
+                    if (fm_contains_term($row_product_type, $alias)) {
+                        $matches_purchase_type = true;
+                        break;
+                    }
+                }
+
+                if (!$matches_purchase_type) {
+                    $failures[] = "purchase_type mismatch";
+                }
+            }
+
+            // --- FIXED / VARIABLE RATE TYPE MATCHING ---
+            $row_rate_type = strtolower(trim(fm_row_get($row, ['loan_type'])));
+
+            // Normalise tracker/discount into variable
+            if (in_array($row_rate_type, ['variable', 'tracker', 'discount'])) {
+                $rate_type = 'variable';
+            } else {
+                $rate_type = 'fixed';
+            }
+
+            // Send to frontend
+            $row['rate_type'] = $rate_type;
+
+            if ($user_rate_type !== '') {
+
+                $matches_rate = false;
+
+                if ($user_rate_type === 'fixed') {
+                    $matches_rate = ($rate_type === 'fixed');
+                }
+
+                if ($user_rate_type === 'variable') {
+                    $matches_rate = ($rate_type === 'variable');
+                }
+
+                if (!$matches_rate) {
+                    $failures[] = "rate_type mismatch";
+                }
+                // --- DEBUG LOGGING FOR RATE TYPE ---
+                error_log("---- RATE TYPE DEBUG ----");
+                error_log("USER SELECTED: " . $user_rate_type);
+                error_log("ROW RAW loan_type: " . $row_rate_type);
+                error_log("ROW NORMALISED rate_type: " . $rate_type);
+                error_log("MATCHES RATE? " . ($matches_rate ? "YES" : "NO"));
+                error_log("FAILURES: " . implode(", ", $failures));
+                error_log("--------------------------");
+            }
+            if (!empty($failures)) {
+                error_log("SKIPPING LENDER due to: " . implode(", ", $failures));
+            }
+            if (!empty($failures)) {
+                continue;
+            }
+
+            // --- HMO FILTERING ---
+            $accepts_hmo = fm_normalize_flag(fm_row_get($row, ['accepts_hmo']));
+            if ($accepts_hmo === '') { $accepts_hmo = 'no'; }
+            if ($user_hmo === 'yes' && $accepts_hmo !== 'yes') { $failures[] = "HMO not accepted"; }
+            if ($user_hmo === 'no' && $accepts_hmo === 'yes') { $failures[] = "HMO product not suitable"; }
+
+            // --- MUFB FILTERING ---
+            $accepts_mufb = fm_normalize_flag(fm_row_get($row, ['accepts_mufb']));
+            if ($accepts_mufb === '') { $accepts_mufb = 'no'; }
+            if ($user_mufb === 'yes' && $accepts_mufb !== 'yes') { $failures[] = "MUFB not accepted"; }
+            if ($user_mufb === 'no' && $accepts_mufb === 'yes') { $failures[] = "MUFB product not suitable"; }
+
+            // --- HOLIDAY LET FILTERING ---
+            $accepts_holiday = fm_normalize_flag(fm_row_get($row, ['accepts_holiday', 'accepts_hol']));
+            if ($accepts_holiday === '') { $accepts_holiday = 'no'; }
+            if ($user_holiday === 'yes' && $accepts_holiday !== 'yes') { $failures[] = "Holiday Let not accepted"; }
+            if ($user_holiday === 'no' && $accepts_holiday === 'yes') { $failures[] = "Holiday Let product not suitable"; }
+
+            // --- HABITABLE ---
+            $row_habitable = fm_row_get($row, ['habitable_required', 'habitable']);
+            if (
+                $habitable_raw !== '' &&
+                $row_habitable !== '' &&
+                strtolower($row_habitable) === 'yes' &&
+                $habitable === 'no'
+            ) {
+                $failures[] = "property not habitable";
+            }
+
+            // --- FIRST TIME LANDLORD ---
+            $row_first_time = fm_normalize_flag(fm_row_get($row, ['accepts_first_time', 'first_time', 'accepts_first_time_landlord']));
+            if (
+                $first_time_raw !== '' &&
+                $row_first_time !== '' &&
+                $row_first_time === 'no' &&
+                $first_time_raw === 'yes'
+            ) {
+                $failures[] = "first_time landlord not accepted";
+            }
+
+            // --- HOMEOWNER ---
+            $row_homeowner = fm_normalize_flag(fm_row_get($row, ['homeowner_required', 'homeowner', 'requires_homeowner']));
+            if (
+                $homeowner_raw !== '' &&
+                $row_homeowner !== '' &&
+                $row_homeowner === 'yes' &&
+                $homeowner_raw === 'no'
+            ) {
+                $failures[] = "non-homeowner not accepted";
+            }
+
+            // --- AGE ---
+            $row_max_age = fm_row_get($row, ['max_age', 'max_age_value']);
+            if ($row_max_age !== '' && $actual_age !== null) {
+                if ((int) $actual_age > (int) $row_max_age) {
+                    $failures[] = "max_age exceeded";
+                }
+            }
+
+            // --- LOAN LIMITS ---
+            $min_loan = fm_parse_number(fm_row_get($row, ['min_loan', 'minimum_loan']));
+            $max_loan = fm_parse_number(fm_row_get($row, ['max_loan', 'maximum_loan']));
+            $max_ltv  = fm_parse_number(fm_row_get($row, ['max_ltv', 'maximum_loan_to_value', 'maximum_ltv']));
+
+            if ($min_loan !== null && $loan_required > 0 && $loan_required < $min_loan) {
+                $failures[] = "loan below minimum";
+            }
+            if ($max_loan !== null && $loan_required > 0 && $loan_required > $max_loan) {
+                $failures[] = "loan above minimum";
+            }
+            if ($max_ltv !== null && $ltv > 0 && $ltv > $max_ltv) {
+                $failures[] = "LTV above max";
+            }
+
+            // --- CCJs ---
+            $accepts_ccjs = fm_row_get($row, ['accepts_ccjs', 'accepts_ccjs_defaults', 'accepts_ccjs_default']);
+            if (
+                $ccj_raw !== '' &&
+                $accepts_ccjs !== '' &&
+                strtolower($accepts_ccjs) === 'no' &&
+                $ccj_raw !== 'none'
+            ) {
+                $failures[] = "historic CCJs not accepted";
+            }
+
+            $recent_ccjs = fm_row_get($row, ['recent_ccjs', 'recent_ccjs_defaults']);
+            if (
+                $recent_ccj_raw !== '' &&
+                $recent_ccjs !== '' &&
+                strtolower($recent_ccjs) === 'no' &&
+                $recent_ccj_raw !== 'none'
+            ) {
+                $failures[] = "recent CCJs not accepted";
+            }
+
+            // --- MISSED PAYMENTS ---
+            $missed_payments_sheet = fm_row_get($row, ['missed_payments']);
+            if (
+                $missed_raw !== '' &&
+                $missed_payments_sheet !== '' &&
+                strtolower($missed_payments_sheet) === 'no' &&
+                $missed_raw !== 'none'
+            ) {
+                $failures[] = "missed payments not accepted";
+            }
+
+            // --- LOCATION ---
+            $accept_locations = fm_row_get($row, ['accept_locations', 'accept_locations_list', 'locations']);
+            $user_location    = strtolower(trim($get('radio-16', '')));
+            if (
+                $user_location !== '' &&
+                $accept_locations !== '' &&
+                !fm_contains_term($accept_locations, $user_location)
+            ) {
+                $failures[] = "location not accepted";
+            }
+
+            // --- NON-STANDARD CONSTRUCTION ---
+            $accepts_nonstandard = fm_normalize_flag(fm_row_get($row, ['accepts_nonstandard', 'accepts_non_standard']));
+            $user_construction   = strtolower(trim($get('radio-15', '')));
+            if (
+                $user_construction !== '' &&
+                $accepts_nonstandard !== '' &&
+                $accepts_nonstandard === 'no' &&
+                $user_construction !== 'standard'
+            ) {
+                $failures[] = "non-standard construction not accepted";
+            }
+
+            // --- RENTAL COVER ---
+            if ($loan_required > 0 && $monthly_rent > 0) {
+                $rate_raw   = fm_row_get($row, ['rates_from', 'rate_from', 'rates']);
+                $rate_clean = fm_parse_number($rate_raw, true);
+                if ($rate_clean !== null && $rate_clean > 0) {
+                    $rate_decimal       = $rate_clean / 100.0;
+                    $min_serviceability = fm_parse_number(fm_row_get($row, ['min_serviceability'])) ?: 1.25;
+                    $monthly_interest   = ($loan_required * $rate_decimal) / 12.0;
+                    $required_rent      = $monthly_interest * $min_serviceability;
+
+                    if ($monthly_rent < $required_rent) {
+                        $failures[] = "rental cover shortfall";
+                    }
+                }
+            }
+
+            // --- FAILURES ---
+            if (!empty($failures)) {
+                file_put_contents(
+                    __DIR__ . '/forminator-log.txt',
+                    "LENDER $label FAILED: " . implode(", ", $failures) . "\n",
+                    FILE_APPEND
+                );
+                $diagnostics[] = [
+                    'funder_id'   => $funder_id,
+                    'funder_name' => $funder_name,
+                    'status'      => 'failed',
+                    'reasons'     => $failures,
+                ];
+                continue;
+            }
+
+            file_put_contents(
+                __DIR__ . '/forminator-log.txt',
+                "LENDER $label PASSED\n",
+                FILE_APPEND
+            );
+
+            // --- MAX TERM CALCULATION ---
+            $sheet_max_term = fm_parse_number(fm_row_get($row, ['max_term'])) ?: 0;
+            $sheet_max_age  = fm_parse_number(fm_row_get($row, ['max_age'])) ?: 0;
+            $user_age       = $actual_age ?: 0;
+
+            $calculated_term = 0;
+
+            if ($sheet_max_age > 0 && $user_age > 0) {
+                $calculated_term = max(0, $sheet_max_age - $user_age);
+            }
+
+            $final_max_term = $sheet_max_term;
+
+            if ($calculated_term > 0 && $calculated_term < $sheet_max_term) {
+                $final_max_term = $calculated_term;
+            }
+
+            // --- COST CALCULATION ---
+            $rate_raw   = fm_row_get($row, ['rates_from', 'rate_from', 'rates']);
+            $rate_clean = fm_parse_number($rate_raw, true);
+            $annual_interest = 0.0;
+
+            if ($loan_required > 0 && $rate_clean !== null && $rate_clean > 0) {
+                $annual_interest = $loan_required * ($rate_clean / 100.0);
+            }
+
+            // Product fee: percent or fixed
+            $fee_raw    = fm_row_get($row, ['product_fee']);
+            $fee_amount = 0.0;
+
+            if ($fee_raw !== '' && $fee_raw !== null) {
+                if (strpos($fee_raw, '%') !== false) {
+                    $percent = fm_parse_number($fee_raw, true);
+                    if ($percent !== null && $percent > 0) {
+                        $fee_amount = $loan_required * ($percent / 100.0);
+                    }
+                } else {
+                    $parsed_fee = fm_parse_number($fee_raw, true);
+                    if ($parsed_fee !== null && $parsed_fee > 0) {
+                        $fee_amount = $parsed_fee;
+                    }
+                }
+            }
+
+            // Deal length from lending_product
+            $lending_product = strtolower(trim($row['lending_product'] ?? ''));
+            $deal_years      = 2;
+
+            if (preg_match('/(\d+)/', $lending_product, $m)) {
+                $deal_years = max(1, (int)$m[1]);
+            }
+
+            $annual_fee = $deal_years > 0 ? ($fee_amount / $deal_years) : $fee_amount;
+            $total_cost = $annual_interest + $annual_fee;
+
+            /* ---------------------------------------------------------
+               ADD FRONTEND FILTER FIELDS
+            --------------------------------------------------------- */
+
+            // PROPERTY TYPE (keep raw flags too)
+            if ($accepts_hmo === 'yes') {
+                $prop_type = 'hmo';
+            } elseif ($accepts_mufb === 'yes') {
+                $prop_type = 'mufb';
+            } elseif ($accepts_holiday === 'yes') {
+                $prop_type = 'holiday';
+            } else {
+                $prop_type = 'standard';
+            }
+
+            // RATE TYPE (fixed / variable)
+            $raw_rate_type = strtolower(trim(fm_row_get($row, ['loan_type'])));
+            if (in_array($raw_rate_type, ['variable', 'tracker', 'discount'])) {
+                $rate_type = 'variable';
+            } else {
+                $rate_type = 'fixed';
+            }
+
+            // PRODUCT TERM (2 / 5 / lifetime)
+            $lp = fm_row_get($row, ['lending_product']);
+            $product_term = '';
+            if (preg_match('/(\d+)/', $lp, $m)) {
+                $product_term = $m[1];
+            } elseif (stripos($lp, 'lifetime') !== false) {
+                $product_term = 'lifetime';
+            }
+
+            // ZERO FEE
+            $pf = strtolower(trim(fm_row_get($row, ['product_fee'])));
+            $clean_pf = preg_replace('/[^0-9.]/', '', $pf);
+            $zero_fee = (floatval($clean_pf) == 0.0) ? '1' : '0';
+
+            // --- stable matching_id (prefer sheet matching_id header) ---
+            $matching_id = fm_row_get($row, ['matching_id']);
+            if ($matching_id === '') {
+                // fallbacks
+                $matching_id = fm_row_get($row, ['product_id', 'id', 'internal_id', 'funder_id']);
+            }
+            if ($matching_id === '' || $matching_id === null) {
+                // deterministic generated id: BTL + zero-padded index (1-based)
+                $matching_id = 'BTL' . str_pad(($rowIndex + 1), 3, '0', STR_PAD_LEFT);
+            }
+            // ensure it's a string
+            $matching_id = (string) $matching_id;
+
+            // --- canonical fields to include in matched result ---
+            $min_age_val = fm_row_get($row, ['min_age', 'min_age_value']);
+            $max_age_val = fm_row_get($row, ['max_age', 'max_age_value']);
+            $borrower_type_val = fm_row_get($row, ['borrower_type', 'borrower']);
+            $accepts_ltd_val = fm_normalize_flag(fm_row_get($row, ['accepts_ltd', 'accepts_ltd_companies', 'accepts_ltd_company']));
+            $accepts_individual_val = fm_normalize_flag(fm_row_get($row, ['accepts_individual', 'accepts_individuals']));
+            $homeowner_required_val = fm_normalize_flag(fm_row_get($row, ['homeowner_required', 'requires_homeowner']));
+            $accepts_first_time_val = fm_normalize_flag(fm_row_get($row, ['accepts_first_time', 'first_time', 'accepts_first_time_landlord']));
+            $accepts_nonstandard_val = fm_normalize_flag(fm_row_get($row, ['accepts_nonstandard', 'accepts_non_standard']));
+            $min_income_val = fm_row_get($row, ['min_income', 'minimum_income']);
+
+            // --- STORE MATCH ---
+            $matches[] = [
+                'option_label'    => 'Option ' . (count($matches) + 1),
+                'rates_from'      => fm_row_get($row, ['rates_from', 'rate_from', 'rates']) ?: '',
+                'max_term'        => $final_max_term,
+                'max_ltv'         => fm_row_get($row, ['max_ltv']) ?: '',
+                'description'     => $row['description'] ?? '',
+                'caption'         => $row['caption'] ?? '',
+                'lending_product' => $row['lending_product'] ?? '',
+                'total_cost'      => $total_cost,
+
+                // NEW FILTER FIELDS (canonical)
+                'min_age'         => $min_age_val !== '' ? $min_age_val : '',
+                'max_age'         => $max_age_val !== '' ? $max_age_val : '',
+                'borrower_type'   => $borrower_type_val !== '' ? $borrower_type_val : '',
+                'accepts_ltd'     => $accepts_ltd_val,
+                'accepts_individual' => $accepts_individual_val,
+                'homeowner_required' => $homeowner_required_val,
+                'accepts_first_time' => $accepts_first_time_val,
+                'accepts_hmo'     => $accepts_hmo,
+                'accepts_mufb'    => $accepts_mufb,
+                'accepts_holiday' => $accepts_holiday,
+                'accepts_nonstandard' => $accepts_nonstandard_val,
+                'min_income'      => $min_income_val !== '' ? $min_income_val : '',
+
+                // existing frontend filter fields
+                'prop_type'       => $prop_type,
+                'rate_type'       => $rate_type,
+                'product_term'    => $product_term,
+                'zero_fee'        => $zero_fee,
+
+                // stable id for frontend matching
+                'funder_id'       => $funder_id,
+                'matching_id'     => $matching_id,
+            ];
+        }
+
+        // --- SORT BY LOWEST TOTAL COST ---
+        if (!empty($matches)) {
+            usort($matches, function ($a, $b) {
+                return ($a['total_cost'] <=> $b['total_cost']);
+            });
+        }
+    }
+
+    /* ---------------------------------------------------------
+       COMMERCIAL ENGINE
+    --------------------------------------------------------- */
+    if ($product_type === 'commmortgage') {
+        $purchase_type_raw = strtolower(trim($get('radio-20', '')));
+        $purchase_type_map = [
+            'purchase'    => 'purchase',
+            'buy'         => 'purchase',
+            'investment'  => 'purchase',
+            'refinance'   => 'refinance',
+            'remortgage'  => 'refinance',
+            're-mortgage' => 'refinance',
+            'refi'        => 'refinance',
+        ];
+        $purchase_type = $purchase_type_map[$purchase_type_raw] ?? $purchase_type_raw;
+
+        $first_time_raw = strtolower(trim($get('radio-1', '')));
+        $homeowner_raw  = strtolower(trim($get('radio-2', '')));
+        $actual_age     = fm_parse_number($get('number-6', ''));
+
+        $ccj_raw        = strtolower(trim($get('radio-8', '')));
+        $recent_ccj_raw = strtolower(trim($get('radio-9', '')));
+        $missed_raw     = strtolower(trim($get('radio-10', '')));
+
+        $loan_required = 0;
+        $ltv           = 0;
+
+
+        if ($purchase_type === 'purchase') {
+            $purchase_price = fm_parse_number($get('currency-3'));
+            $deposit        = fm_parse_number($get('currency-4'));
+            $additional     = fm_parse_number($get('currency-17')) ?: 0;
+            if ($purchase_price > 0) {
+                $loan_required = max(0, ($purchase_price - ($deposit ?: 0)) + ($additional ?: 0));
+                $ltv           = ($loan_required / $purchase_price) * 100;
+            }
+        } else {
+            $property_value = fm_parse_number($get('currency-18'));
+            $outstanding    = fm_parse_number($get('currency-5'));
+            $additional     = fm_parse_number($get('currency-17')) ?: 0;
+            if ($property_value > 0) {
+                $loan_required = max(0, ($outstanding ?: 0) + ($additional ?: 0));
+                $ltv           = ($loan_required / $property_value) * 100;
+            } else {
+                $purchase_price = fm_parse_number($get('currency-3'));
+                if ($purchase_price > 0) {
+                    $loan_required = max(0, ($outstanding ?: 0) + ($additional ?: 0));
+                    $ltv           = ($loan_required / $purchase_price) * 100;
+                }
+            }
+        }
+
+        $annual_rent  = fm_parse_number($get('currency-6'));
+        $monthly_rent = $annual_rent > 0 ? ($annual_rent / 12.0) : 0;
+
+        $user_trade_raw    = strtolower(trim($get('radio-3', '')));
+        $user_industry_raw = strtolower(trim($get('radio-23', '')));
+
+        foreach ($sheetData as $rowIndex => $row) {
+            $funder_id   = fm_row_get($row, ['funder_id', 'id', 'internal_id']) ?: 'UNKNOWN';
+            $funder_name = fm_row_get($row, ['funder_name', 'name', 'lender_name']) ?: '';
+            $label       = trim($funder_id . ' ' . ($funder_name ? "($funder_name)" : ''));
+            $failures    = [];
+
+            // loan_type / purchase_type matching with aliases
+            $row_loan_type      = fm_row_get($row, ['loan_type', 'purchase_type']);
+            $row_loan_type_norm = strtolower(trim($row_loan_type));
+            $purchase_type_norm = strtolower(trim($purchase_type));
+
+            $purchase_aliases = [
+                'purchase'  => ['purchase', 'buy', 'investment'],
+                'refinance' => ['refinance', 'remortgage', 're-mortgage', 'refi'],
+            ];
+
+            if ($purchase_type_norm !== '' && $row_loan_type_norm !== '') {
+                $loan_type_matches = false;
+                foreach ($purchase_aliases as $group => $aliases) {
+                    foreach ($aliases as $a) {
+                        if ($row_loan_type_norm === $a || fm_contains_term($row_loan_type_norm, $a)) {
+                            if ($group === $purchase_type_norm) {
+                                $loan_type_matches = true;
+                            }
+                        }
+                    }
+                }
+                if (!$loan_type_matches) {
+                    $failures[] = "purchase_type mismatch";
+                }
+            }
+
+            // TRADE READY: only if user answered
+            $trade_ready_required = strtolower(trim(fm_row_get($row, ['trade_ready_required'])));
+            if ($user_trade_raw !== '' && $trade_ready_required === 'yes') {
+                if (!in_array($user_trade_raw, [
+                    'yes',
+                    'yes - currently let',
+                    'yes - currently trading',
+                    'yes - currently trading from premises',
+                ], true)) {
+                    $failures[] = "property not ready/tradeable";
+                }
+            }
+
+            // FIRST TIME COMM
+            $row_first_time_comm = strtolower(trim(fm_row_get($row, ['accepts_first_time_comm'])));
+            if ($first_time_raw !== '' && $row_first_time_comm === 'no' && $first_time_raw === 'yes') {
+                $failures[] = "first_time commercial landlord not accepted";
+            }
+
+            // HOMEOWNER
+            $row_homeowner = strtolower(trim(fm_row_get($row, ['homeowner_required', 'homeowner'])));
+            if ($homeowner_raw !== '' && $row_homeowner === 'yes' && $homeowner_raw === 'no') {
+                $failures[] = "non-homeowner not accepted";
+            }
+
+            // AGE
+            $row_max_age = fm_row_get($row, ['max_age']);
+            if ($row_max_age !== '' && $actual_age !== null) {
+                if ((int) $actual_age > (int) $row_max_age) {
+                    $failures[] = "max_age exceeded";
+                }
+            }
+
+            // LOAN / LTV
+            $min_loan = fm_parse_number(fm_row_get($row, ['min_loan', 'minimum_loan']));
+            $max_loan = fm_parse_number(fm_row_get($row, ['max_loan', 'maximum_loan']));
+            $max_ltv  = fm_parse_number(fm_row_get($row, ['max_ltv', 'maximum_ltv']));
+
+            if ($min_loan !== null && $loan_required > 0 && $loan_required < $min_loan) {
+                $failures[] = "loan below minimum";
+            }
+            if ($max_loan !== null && $loan_required > 0 && $loan_required > $max_loan) {
+                $failures[] = "loan above maximum";
+            }
+            if ($max_ltv !== null && $ltv > 0 && $ltv > $max_ltv) {
+                $failures[] = "LTV above max";
+            }
+
+            // CCJs
+            $accepts_ccjs = strtolower(trim(fm_row_get($row, ['accepts_ccjs', 'accepts_ccjs_defaults'])));
+            if ($ccj_raw !== '' && $accepts_ccjs === 'no' && $ccj_raw !== 'none') {
+                $failures[] = "historic CCJs not accepted";
+            }
+
+            // RECENT CCJs
+            $recent_ccjs = strtolower(trim(fm_row_get($row, ['recent_ccjs', 'recent_ccjs_defaults'])));
+            if ($recent_ccj_raw !== '' && $recent_ccjs === 'no' && $recent_ccj_raw !== 'none') {
+                $failures[] = "recent CCJs not accepted";
+            }
+
+            // MISSED PAYMENTS
+            $missed_payments_sheet = strtolower(trim(fm_row_get($row, ['missed_payments'])));
+            if ($missed_raw !== '' && $missed_payments_sheet === 'no' && $missed_raw !== 'none') {
+                $failures[] = "missed payments not accepted";
+            }
+
+            // INDUSTRY (exact match, only if user answered)
+            $excluded_raw  = fm_row_get($row, ['excluded_industries', 'excluded_industry']);
+            $excluded_list = [];
+            if (!empty($excluded_raw)) {
+                $excluded_list = array_map('trim', explode(',', strtolower($excluded_raw)));
+            }
+
+            $user_industries = [
+                strtolower(trim($get('radio-16', ''))),
+                strtolower(trim($get('radio-23', ''))),
+                strtolower(trim($get('radio-24', ''))),
+                strtolower(trim($get('radio-25', ''))),
+                strtolower(trim($get('radio-26', ''))),
+                strtolower(trim($get('radio-27', ''))),
+                strtolower(trim($get('radio-28', ''))),
+            ];
+
+            foreach ($user_industries as $ind) {
+                if ($ind === '') {
+                    continue;
+                }
+                if (in_array($ind, $excluded_list, true)) {
+                    $failures[] = "excluded industry: " . $ind;
+                    break;
+                }
+            }
+
+            // COMM numeric fields
+            $rate_raw     = fm_row_get($row, ['rates_from', 'rate_from', 'rates']);
+            $rate_pct     = fm_parse_number($rate_raw, true);
+            $rate_decimal = ($rate_pct !== null) ? ($rate_pct / 100.0) : null;
+
+            $max_term_raw = fm_row_get($row, ['max_term', 'maximum_term', 'term_years']);
+            $max_term     = (int) $max_term_raw ?: 0;
+
+            // DSC always multiplier
+            $min_dsc_raw = fm_row_get($row, ['min_dsc', 'dsc', 'min_dsc_multiplier']);
+            $min_dsc     = fm_parse_number($min_dsc_raw);
+            if ($min_dsc === null) {
+                $min_dsc = 1.0;
+            }
+
+            // OWNER CAPITAL REPAYMENT (only if occupation_type includes owner)
+            $occupation_type = fm_row_get($row, ['occupation_type']);
+            if (!empty($occupation_type) && fm_contains_term($occupation_type, 'owner') && $min_dsc !== null) {
+                $annual_capital_repayment = null;
+                $annual_payment           = 0;
+
+                if ($rate_decimal !== null && $rate_decimal > 0 && $max_term > 0 && $loan_required > 0) {
+                    $r   = $rate_decimal;
+                    $n   = $max_term;
+                    $den = 1 - pow(1 + $r, -$n);
+                    if ($den > 0) {
+                        $annual_payment           = $loan_required * ($r / $den);
+                        $annual_capital_repayment = $annual_payment * $min_dsc;
+                    }
+                }
+
+                if ($annual_capital_repayment === null) {
+                    $annual_interest_only     = ($rate_decimal !== null) ? ($loan_required * $rate_decimal) : 0;
+                    $annual_capital_repayment = $annual_interest_only * $min_dsc;
+                }
+
+                $net_profit_raw   = $get('currency-20', 0);
+                $rent_paid_raw    = $get('currency-21', 0);
+                $net_profit       = fm_parse_number($net_profit_raw) ?: 0;
+                $annual_rent_paid = fm_parse_number($rent_paid_raw) ?: 0;
+                $combined         = $net_profit + $annual_rent_paid;
+
+
+                if (COMM_DEBUG_TOGGLE) {
+                    $dbg_owner = sprintf(
+                        "DBG-OWNER %s | loan=%.2f | rate=%s | term=%s | annual_payment=%.2f | min_dsc=%s | required=%.2f | combined=%.2f\n",
+                        $label,
+                        $loan_required,
+                        ($rate_pct === null ? 'null' : $rate_pct),
+                        ($max_term ?: 'null'),
+                        $annual_payment,
+                        $min_dsc,
+                        $annual_capital_repayment,
+                        $combined
+                    );
+                    file_put_contents(__DIR__ . '/forminator-log.txt', $dbg_owner, FILE_APPEND);
+                }
+
+                if ($combined > 0 && $combined <= $annual_capital_repayment) {
+                    $failures[] = "owner capital repayment shortfall";
+                }
+            }
+
+            // SERVICEABILITY: annual rent vs annual interest * min_serviceability
+            if ($loan_required > 0 && $annual_rent > 0 && $rate_decimal !== null && $rate_decimal > 0) {
+                $min_serviceability = fm_parse_number(fm_row_get($row, ['min_serviceability'])) ?: 1.25;
+                $annual_interest    = $loan_required * $rate_decimal;
+                $required_annual    = $annual_interest * $min_serviceability;
+
+                if (COMM_DEBUG_TOGGLE) {
+                    $dbg_serv = sprintf(
+                        "DBG-COMM %s | loan=%.2f | ltv=%.2f | annual_rent=%.2f | rate=%s | min_serv=%s | required_annual=%s\n",
+                        $label,
+                        $loan_required,
+                        $ltv,
+                        $annual_rent,
+                        ($rate_pct === null ? 'null' : $rate_pct),
+                        $min_serviceability,
+                        $required_annual
+                    );
+                    file_put_contents(__DIR__ . '/forminator-log.txt', $dbg_serv, FILE_APPEND);
+                }
+
+                if ($annual_rent < $required_annual) {
+                    $failures[] = "annual rental cover shortfall";
+                }
+            }
+
+            // simple numeric snapshot
+            if (COMM_DEBUG_TOGGLE) {
+                $dbg_line = sprintf(
+                    "DBG %s | loan=%.2f | ltv=%.2f | annual_rent=%.2f | rate=%s | min_serviceability=%s | min_dsc=%s\n",
+                    $label,
+                    $loan_required,
+                    $ltv,
+                    $annual_rent ?: 0,
+                    ($rate_pct === null ? 'null' : $rate_pct),
+                    (fm_parse_number(fm_row_get($row, ['min_serviceability'])) ?: 1.25),
+                    $min_dsc
+                );
+                file_put_contents(__DIR__ . '/forminator-log.txt', $dbg_line, FILE_APPEND);
+            }
+
+            if (!empty($failures)) {
+                file_put_contents(
+                    __DIR__ . '/forminator-log.txt',
+                    "LENDER $label FAILED: " . implode(", ", $failures) . "\n",
+                    FILE_APPEND
+                );
+                $diagnostics[] = [
+                    'funder_id'   => $funder_id,
+                    'funder_name' => $funder_name,
+                    'status'      => 'failed',
+                    'reasons'     => $failures,
+                ];
+                continue;
+            }
+
+            file_put_contents(__DIR__ . '/forminator-log.txt', "LENDER $label PASSED\n", FILE_APPEND);
+
+            $matches[] = [
+                'option_label'    => 'Option ' . (count($matches) + 1),
+                'rates_from'      => fm_row_get($row, ['rates_from', 'rate_from', 'rates']) ?: '',
+                'max_term'        => fm_row_get($row, ['max_term']) ?: '',
+                'max_ltv'         => fm_row_get($row, ['max_ltv']) ?: '',
+                'description'     => $row['description'] ?? '',
+                'caption'         => $row['caption'] ?? '',
+                'lending_product' => $row['lending_product'] ?? '',
+
+                // stable id for frontend matching
+                'funder_id'       => $funder_id,
+                // matching_id will be ensured in enrichment step below
+            ];
+        }
+    }
+
+    /* ---------------------------------------------------------
+       SORT + FORMAT
+    --------------------------------------------------------- */
+    usort($matches, function ($a, $b) {
+        $ra = fm_parse_number($a['rates_from'], true) ?: PHP_FLOAT_MAX;
+        $rb = fm_parse_number($b['rates_from'], true) ?: PHP_FLOAT_MAX;
+        return $ra <=> $rb;
+    });
+
+    foreach ($matches as $i => &$m) {
+        $m['option_label'] = ($i === 0) ? 'Best Match' : 'Option ' . ($i + 1);
+    }
+    unset($m);
+
+    $pretty_log = "";
+    foreach ($data as $key => $entry) {
+        if (!isset($entry['values']) || !is_array($entry['values'])) {
+            continue;
+        }
+        $question = isset($entry['question']) && $entry['question'] !== "" ? $entry['question'] : $key;
+        $values   = implode(", ", $entry['values']);
+        $values   = preg_replace_callback('/\d{6,}/', function ($m) {
+            $s = $m[0];
+            return substr($s, 0, 3) . '***' . substr($s, -3);
+        }, $values);
+        $pretty_log .= $question . ": " . $values . "\n";
+    }
+    $pretty_log .= "\nIP Address: " . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . "\n";
+
+    $sheet_debug = [
+        'sheet'          => $product_type,
+        'rows_loaded'    => count($sheetData),
+        'first_row_keys' => isset($sheetData[0]) ? array_keys($sheetData[0]) : [],
+    ];
+
+    /* ---------------------------------------------------------
+       ENRICH all_results (canonical fields + stable id)
+       This ensures frontend fullResults has the same normalized fields
+       used in matched_results so client-side filtering works reliably.
+    --------------------------------------------------------- */
+    $enriched_all = [];
+
+    foreach ($sheetData as $rowIndex => $row) {
+        // stable id (prefer sheet matching_id header)
+        $matching_id = fm_row_get($row, ['matching_id']);
+        if ($matching_id === '') {
+            $matching_id = fm_row_get($row, ['product_id', 'id', 'internal_id', 'funder_id']);
+        }
+        if ($matching_id === '' || $matching_id === null) {
+            $matching_id = 'BTL' . str_pad(($rowIndex + 1), 3, '0', STR_PAD_LEFT);
+        }
+        $matching_id = (string) $matching_id;
+
+        // lending product / term
+        $lp = fm_row_get($row, ['lending_product']);
+        $product_term = '';
+        if (preg_match('/(\d+)/', $lp, $m)) {
+            $product_term = $m[1];
+        } elseif (stripos($lp, 'lifetime') !== false) {
+            $product_term = 'lifetime';
+        }
+
+        // property type flags
+        $accepts_hmo    = fm_normalize_flag(fm_row_get($row, ['accepts_hmo']));
+        $accepts_mufb   = fm_normalize_flag(fm_row_get($row, ['accepts_mufb']));
+        $accepts_holiday= fm_normalize_flag(fm_row_get($row, ['accepts_holiday', 'accepts_hol']));
+        $accepts_nonstandard = fm_normalize_flag(fm_row_get($row, ['accepts_nonstandard', 'accepts_non_standard']));
+        if ($accepts_hmo === 'yes') {
+            $prop_type = 'hmo';
+        } elseif ($accepts_mufb === 'yes') {
+            $prop_type = 'mufb';
+        } elseif ($accepts_holiday === 'yes') {
+            $prop_type = 'holiday';
+        } else {
+            $prop_type = 'standard';
+        }
+
+        // normalise rate_type
+        $raw_rate_type = strtolower(trim(fm_row_get($row, ['loan_type'])));
+        if (in_array($raw_rate_type, ['variable', 'tracker', 'discount', 'svr'])) {
+            $rate_type = 'variable';
+        } elseif ($raw_rate_type === '') {
+            // fallback: default to fixed
+            $rate_type = 'fixed';
+        } else {
+            $rate_type = 'fixed';
+        }
+
+        // zero fee
+        $pf = strtolower(trim(fm_row_get($row, ['product_fee'])));
+        $clean_pf = preg_replace('/[^0-9.]/', '', $pf);
+        $zero_fee = (floatval($clean_pf) == 0.0) ? '1' : '0';
+
+        // copy through key numeric fields if present
+        $rates_from = fm_row_get($row, ['rates_from', 'rate_from', 'rates']) ?: '';
+        $max_ltv    = fm_row_get($row, ['max_ltv', 'maximum_ltv']) ?: '';
+        $max_term   = fm_row_get($row, ['max_term']) ?: '';
+
+        // canonical fields for new compare UI
+        $min_age = fm_row_get($row, ['min_age', 'min_age_value']) ?: '';
+        $max_age = fm_row_get($row, ['max_age', 'max_age_value']) ?: '';
+        $borrower_type = fm_row_get($row, ['borrower_type', 'borrower']) ?: '';
+        $accepts_ltd = fm_normalize_flag(fm_row_get($row, ['accepts_ltd', 'accepts_ltd_companies', 'accepts_ltd_company']));
+        $accepts_individual = fm_normalize_flag(fm_row_get($row, ['accepts_individual', 'accepts_individuals']));
+        $homeowner_required = fm_normalize_flag(fm_row_get($row, ['homeowner_required', 'requires_homeowner']));
+        $accepts_first_time = fm_normalize_flag(fm_row_get($row, ['accepts_first_time', 'first_time', 'accepts_first_time_landlord']));
+        $min_income = fm_row_get($row, ['min_income', 'minimum_income']) ?: '';
+
+        // attach canonical fields while preserving original row data
+        $row['funder_id']    = fm_row_get($row, ['funder_id', 'id', 'internal_id']) ?: 'UNKNOWN';
+        $row['rate_type']    = $rate_type;
+        $row['prop_type']    = $prop_type;
+        $row['product_term'] = $product_term;
+        $row['zero_fee']     = $zero_fee;
+        $row['rates_from']   = $rates_from;
+        $row['max_ltv']      = $max_ltv;
+        $row['max_term']     = $max_term;
+        $row['matching_id']  = $matching_id;
+
+        // new canonical keys for client
+        $row['min_age'] = $min_age;
+        $row['max_age'] = $max_age;
+        $row['borrower_type'] = $borrower_type;
+        $row['accepts_ltd'] = $accepts_ltd;
+        $row['accepts_individual'] = $accepts_individual;
+        $row['homeowner_required'] = $homeowner_required;
+        $row['accepts_first_time'] = $accepts_first_time;
+        $row['accepts_hmo'] = $accepts_hmo;
+        $row['accepts_mufb'] = $accepts_mufb;
+        $row['accepts_holiday'] = $accepts_holiday;
+        $row['accepts_nonstandard'] = $accepts_nonstandard;
+        $row['min_income'] = $min_income;
+
+        $enriched_all[] = $row;
+    }
+
+    // Ensure matched_results include funder_id and matching_id so frontend can match reliably
+    foreach ($matches as $idx => $m) {
+        if (empty($m['funder_id']) || empty($m['matching_id'])) {
+            $found = null;
+            foreach ($enriched_all as $r) {
+                if (isset($m['lending_product']) && isset($r['lending_product']) &&
+                    trim(strtolower($m['lending_product'])) === trim(strtolower($r['lending_product']))) {
+                    $found = $r;
+                    break;
+                }
+                // also try matching by funder_id
+                if (!empty($m['funder_id']) && isset($r['funder_id']) && trim((string)$m['funder_id']) === trim((string)$r['funder_id'])) {
+                    $found = $r;
+                    break;
+                }
+            }
+            if ($found) {
+                $matches[$idx]['funder_id'] = $found['funder_id'] ?? 'UNKNOWN';
+                $matches[$idx]['matching_id'] = $found['matching_id'] ?? ($found['funder_id'] ?? 'UNKNOWN');
+
+                // also copy canonical fields from enriched row if missing
+                $matches[$idx]['min_age'] = $matches[$idx]['min_age'] ?? ($found['min_age'] ?? '');
+                $matches[$idx]['max_age'] = $matches[$idx]['max_age'] ?? ($found['max_age'] ?? '');
+                $matches[$idx]['borrower_type'] = $matches[$idx]['borrower_type'] ?? ($found['borrower_type'] ?? '');
+                $matches[$idx]['accepts_ltd'] = $matches[$idx]['accepts_ltd'] ?? ($found['accepts_ltd'] ?? '');
+                $matches[$idx]['accepts_individual'] = $matches[$idx]['accepts_individual'] ?? ($found['accepts_individual'] ?? '');
+                $matches[$idx]['homeowner_required'] = $matches[$idx]['homeowner_required'] ?? ($found['homeowner_required'] ?? '');
+                $matches[$idx]['accepts_first_time'] = $matches[$idx]['accepts_first_time'] ?? ($found['accepts_first_time'] ?? '');
+                $matches[$idx]['accepts_hmo'] = $matches[$idx]['accepts_hmo'] ?? ($found['accepts_hmo'] ?? '');
+                $matches[$idx]['accepts_mufb'] = $matches[$idx]['accepts_mufb'] ?? ($found['accepts_mufb'] ?? '');
+                $matches[$idx]['accepts_holiday'] = $matches[$idx]['accepts_holiday'] ?? ($found['accepts_holiday'] ?? '');
+                $matches[$idx]['accepts_nonstandard'] = $matches[$idx]['accepts_nonstandard'] ?? ($found['accepts_nonstandard'] ?? '');
+                $matches[$idx]['min_income'] = $matches[$idx]['min_income'] ?? ($found['min_income'] ?? '');
+            } else {
+                // fallback: ensure matching_id exists
+                if (empty($matches[$idx]['matching_id'])) {
+                    $matches[$idx]['matching_id'] = 'BTL' . str_pad(($idx + 1), 3, '0', STR_PAD_LEFT);
+                }
+                if (empty($matches[$idx]['funder_id'])) {
+                    $matches[$idx]['funder_id'] = 'UNKNOWN';
+                }
+            }
+        }
+    }
+
+    // Optional debug: log first few matching_ids if debug toggle enabled
+    if (defined('BTL_DEBUG_TOGGLE') && BTL_DEBUG_TOGGLE) {
+        $sample_ids = array_slice(array_map(function($r){ return $r['matching_id'] ?? ($r['funder_id'] ?? ''); }, $enriched_all), 0, 12);
+        error_log('[funder_match] sample_enriched_matching_ids: ' . implode(', ', $sample_ids));
+    }
+
+   return [
+        'matches_found'   => count($matches),
+        'matched_results' => $matches,
+        'all_results'     => $enriched_all,
+        'diagnostics'     => $diagnostics,
+        'sheet_debug'     => $sheet_debug,
+        'log'             => $pretty_log,
+    ];
+}
+/* ---------------------------------------------------------
+   ENDPOINT HOOK
+--------------------------------------------------------- */
+add_action('init', function () {
+    if (!isset($_GET['funder_match'])) {
+        return;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        if (isset($_SERVER['HTTP_ORIGIN'])) {
+            header('Access-Control-Allow-Origin: ' . esc_url_raw($_SERVER['HTTP_ORIGIN']));
+            header('Access-Control-Allow-Credentials: true');
+            header('Access-Control-Allow-Methods: POST, OPTIONS');
+            header('Access-Control-Allow-Headers: X-Funder-Match-Token, X-API-Token, Authorization, Content-Type');
+        }
+        status_header(200);
+        exit;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        wp_send_json(['success' => false, 'message' => 'Invalid request method'], 405);
+    }
+
+    if (isset($_SERVER['HTTP_ORIGIN'])) {
+        $origin = $_SERVER['HTTP_ORIGIN'];
+        $site   = get_site_url();
+        if (stripos($origin, $site) === 0) {
+            header('Access-Control-Allow-Origin: ' . esc_url_raw($origin));
+            header('Access-Control-Allow-Credentials: true');
+            header('Access-Control-Allow-Methods: POST, OPTIONS');
+            header('Access-Control-Allow-Headers: X-Funder-Match-Token, X-API-Token, Authorization, Content-Type');
+        }
+    }
+
+    $expected = get_option('FUNDER_MATCH_TOKEN', '');
+    $incoming = fm_get_incoming_token();
+
+    if (!empty($expected)) {
+        if (empty($incoming) || !hash_equals((string) $expected, (string) $incoming)) {
+            wp_send_json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+    } else {
+        if (!fm_is_same_origin_request()) {
+            if (empty($incoming)) {
+                wp_send_json(['success' => false, 'message' => 'Unauthorized (no token and not same-origin)'], 401);
+            }
+        }
+    }
+
+    $result = run_funder_matching();
+    wp_send_json($result);
+});
+
+/* ---------------------------------------------------------
+   AJAX: store first form log
+--------------------------------------------------------- */
+add_action('wp_ajax_store_first_form_log', 'acf_store_first_form_log');
+add_action('wp_ajax_nopriv_store_first_form_log', 'acf_store_first_form_log');
+
+function acf_store_first_form_log() {
+    $raw  = file_get_contents("php://input");
+    $data = json_decode($raw, true);
+
+    if (!$data || empty($data['log'])) {
+        wp_send_json(['success' => false]);
+    }
+
+    // Clean log
+    $log = preg_replace('/[^\PC\s]/u', '', $data['log']);
+    $log = mb_substr($log, 0, 20000);
+
+    // Full lender results
+    $results      = isset($data['results']) ? $data['results'] : [];
+    $results_json = wp_json_encode($results);
+
+    // Store both in transient
+    $key = 'log_' . uniqid('', true);
+    set_transient(
+        $key,
+        [
+            'log'     => $log,
+            'results' => $results_json,
+        ],
+        HOUR_IN_SECONDS
+    );
+
+    wp_send_json(['success' => true, 'key' => $key]);
+}
+
+/* ---------------------------------------------------------
+   CF7: append first form log to email
+--------------------------------------------------------- */
+add_action('wpcf7_before_send_mail', function ($contact_form) {
+    if ($contact_form->id() != 10074) {
+        return;
+    }
+
+    $submission = WPCF7_Submission::get_instance();
+    if (!$submission) {
+        return;
+    }
+
+    $data = $submission->get_posted_data();
+    $key  = isset($data['portal_log_key']) ? sanitize_text_field($data['portal_log_key']) : '';
+
+    if (!$key) {
+        return;
+    }
+
+    $stored = get_transient($key);
+
+    // Backwards compatibility: if old string-only transient exists
+    if ($stored && !is_array($stored)) {
+        $raw_log         = $stored;
+        $raw_results     = [];
+        $raw_results_json = "[]";
+    } else {
+        $raw_log          = isset($stored['log']) ? $stored['log'] : "No log found.";
+        $raw_results_json = isset($stored['results']) ? $stored['results'] : "[]";
+        $raw_results      = json_decode($raw_results_json, true);
+        if (!is_array($raw_results)) {
+            $raw_results = [];
+        }
+    }
+
+    $ip_address = "";
+    if (preg_match('/IP Address:\s*([0-9\.]+)/', $raw_log, $m)) {
+        $ip_address = "IP Address: " . $m[1];
+        $raw_log    = str_replace($m[0], '', $raw_log);
+    }
+
+    $lines = array_filter(array_map('trim', explode("\n", $raw_log)));
+
+    $ignore_keys = [
+        'referer_url',
+        'forminator_nonce',
+        '_wp_http_referer',
+        'form_id',
+        'page_id',
+        'render_id',
+        'action',
+        'current_url',
+        'form_type',
+    ];
+
+    $cleaned = [];
+
+    foreach ($lines as $line) {
+        if (!str_contains($line, ':')) {
+            continue;
+        }
+        $pos = strpos($line, ':');
+        $q   = trim(substr($line, 0, $pos));
+        $v   = trim(substr($line, $pos + 1));
+        if ($v === "") {
+            continue;
+        }
+        $keyPart = strtolower($q);
+        if (in_array($keyPart, $ignore_keys)) {
+            continue;
+        }
+        $cleaned[] = $q . ": " . $v;
+    }
+
+    $purchase_price = null;
+    $deposit        = null;
+    $loan_required  = null;
+    $monthly_rent   = null;
+
+    foreach ($cleaned as $line) {
+        if (stripos($line, 'purchase price') !== false) {
+            $purchase_price = fm_parse_number($line);
+        }
+        if (stripos($line, 'deposit') !== false && stripos($line, 'have') !== false) {
+            $deposit = fm_parse_number($line);
+        }
+        if (stripos($line, 'total mortgage required') !== false) {
+            $loan_required = fm_parse_number($line);
+        }
+        if (stripos($line, 'monthly rental income') !== false) {
+            $monthly_rent = fm_parse_number($line);
+        }
+    }
+
+    $ltv              = null;
+    $deposit_pct      = null;
+    $rental_cover_pct = null;
+
+    if ($purchase_price > 0 && $loan_required > 0) {
+        $ltv = round(($loan_required / $purchase_price) * 100, 1);
+    }
+    if ($purchase_price > 0 && $deposit > 0) {
+        $deposit_pct = round(($deposit / $purchase_price) * 100, 1);
+    }
+    if ($loan_required > 0 && $monthly_rent > 0) {
+        $stress_rate      = 0.05;
+        $monthly_interest = ($loan_required * $stress_rate) / 12;
+        $rental_cover_pct = round(($monthly_rent / $monthly_interest) * 100, 1);
+    }
+
+    $summary = "=== Case Summary ===\n";
+    if ($purchase_price) {
+        $summary .= "Purchase Price: £" . number_format($purchase_price) . "\n";
+    }
+    if ($deposit) {
+        $summary .= "Deposit: £" . number_format($deposit) . "\n";
+    }
+    if ($deposit_pct) {
+        $summary .= "Deposit %: " . $deposit_pct . "%\n";
+    }
+    if ($loan_required) {
+        $summary .= "Loan Required: £" . number_format($loan_required) . "\n";
+    }
+    if ($ltv) {
+        $summary .= "LTV: " . $ltv . "%\n";
+    }
+    if ($monthly_rent) {
+        $summary .= "Monthly Rent: £" . number_format($monthly_rent) . "\n";
+    }
+    if ($rental_cover_pct) {
+        $summary .= "Rental Cover: " . $rental_cover_pct . "%\n";
+    }
+    $summary .= "\n";
+
+    $sections = [
+        'Applicant Profile' => [],
+        'Credit Profile'    => [],
+        'Property Details'  => [],
+        'Loan Requirements' => [],
+        'Other Information' => [],
+    ];
+
+    foreach ($cleaned as $line) {
+        $lower = strtolower($line);
+        if (str_contains($lower, 'age') || str_contains($lower, 'homeowner') || str_contains($lower, 'landlord')) {
+            $sections['Applicant Profile'][] = $line;
+        } elseif (str_contains($lower, 'ccj') || str_contains($lower, 'default') || str_contains($lower, 'missed') || str_contains($lower, 'credit')) {
+            $sections['Credit Profile'][] = $line;
+        } elseif (str_contains($lower, 'property') || str_contains($lower, 'rent') || str_contains($lower, 'habitable')) {
+            $sections['Property Details'][] = $line;
+        } elseif (str_contains($lower, 'loan') || str_contains($lower, 'deposit') || str_contains($lower, 'purchase') || str_contains($lower, 'mortgage') || str_contains($lower, 'finance')) {
+            $sections['Loan Requirements'][] = $line;
+        } else {
+            $sections['Other Information'][] = $line;
+        }
+    }
+
+    $formatted = $summary;
+    foreach ($sections as $title => $items) {
+        if (!empty($items)) {
+            $formatted .= "=== $title ===\n";
+            foreach ($items as $i) {
+                $formatted .= $i . "\n";
+            }
+            $formatted .= "\n";
+        }
+    }
+
+    if (!empty($ip_address)) {
+        $formatted .= $ip_address . "\n";
+    }
+
+    // Append full lender results
+    if (!empty($raw_results)) {
+        $formatted .= "\n=== Lender Matches ===\n";
+
+        foreach ($raw_results as $r) {
+            $formatted .= ($r['option_label'] ?? 'Option') . "\n";
+            $formatted .= "Product: " . ($r['lending_product'] ?? '') . "\n";
+            $formatted .= "Caption: " . ($r['caption'] ?? '') . "\n";
+            $formatted .= "Rates From: " . ($r['rates_from'] ?? '') . "\n";
+            $formatted .= "Max LTV: " . ($r['max_ltv'] ?? '') . "%\n";
+            $formatted .= "Max Term: " . ($r['max_term'] ?? '') . " years\n";
+            $formatted .= "Description: " . ($r['description'] ?? '') . "\n";
+            $formatted .= "-------------------------\n";
+        }
+    }
+
+    $mail         = $contact_form->prop('mail');
+    $mail['body'] .= "\n\n-------------------------\nFULL FIRST FORM LOG\n-------------------------\n" . $formatted;
+    $contact_form->set_properties(['mail' => $mail]);
+
+    delete_transient($key);
+});
