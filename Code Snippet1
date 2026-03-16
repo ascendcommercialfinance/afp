@@ -1,0 +1,2451 @@
+<?php
+function funder_script_shortcode() {
+    ob_start();
+    ?>
+
+<!-- CF7 PROGRESS FORM (STATIC EMBED, HIDDEN INITIALLY) -->
+<div id="progress-form-container" style="display:none; margin-top:30px;">
+    <?php echo do_shortcode('[contact-form-7 id="10074" title="Portal Contact Form"]'); ?>
+</div>
+
+<!-- COMING SOON PLACEHOLDER -->
+<div id="coming-soon" style="display:none; padding:20px; border:1px solid #ccc; margin-top:20px;">
+    <h3>We're building this journey</h3>
+    <p>This finance option will be available soon. In the meantime, feel free to contact us directly.</p>
+
+    <button id="no-results-apply-btn"
+        style="
+            background:#149580;
+            color:white;
+            border-radius:6px;
+            font-size:12px;
+            font-weight:600;
+            line-height:36px;
+            cursor:pointer;
+            margin-top:20px;
+            display:block;
+            margin-left:auto;
+            margin-right:auto;
+            text-align:center;
+        ">
+        Request Call
+    </button>
+</div>
+
+<style>
+/* Toggle vertical centering and load-more styling */
+.btl-toggle {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box;
+  height: 32px !important;
+  padding: 0 14px !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  border-radius: 6px;
+}
+.btl-toggle.active {
+  border-radius: 6px;
+}
+.btl-toggle > * {
+  display: inline-block;
+  line-height: 1;
+  vertical-align: middle;
+}
+#load-more-results {
+  transition: background .12s ease, color .12s ease;
+  line-height: normal;
+  border: 1px solid #14958030;
+}
+#load-more-results:hover {
+  background:#149580;
+  color:white;
+}
+
+/* Result card animation for Load more (fade + slide) */
+.result-card {
+  opacity: 1;
+  transform: none;
+  transition: opacity .36s ease, transform .36s ease;
+  position: relative; /* required for compare checkbox absolute placement */
+}
+.result-card.new {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.result-card.new.show {
+  opacity: 1;
+  transform: none;
+}
+
+/* Ensure load-more wrapper is full width and sits after list */
+.load-more-wrapper { width: 100%; display: block; text-align:center; margin: 12px 0 40px 0; }
+
+/* Back to results button */
+#back-to-results-btn {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #149580;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 1000000; /* higher than compare button */
+  font-weight: 700;
+  cursor: pointer;
+  display: none;
+  line-height: normal;
+}
+#back-to-results-btn small { display:block; font-weight:600; opacity:0.9; font-size:12px; }
+
+/* Compare button (floating) - compact and closer to center */
+#compare-btn {
+  position: fixed;
+  bottom: 18px;
+  left: calc(50% + 0px);
+  transform: translateX(-50%);
+  background: #149580;
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 999999;
+  font-weight: 700;
+  cursor: pointer;
+  display: none;
+  font-size: 13px;
+  line-height: normal;
+  min-width: 56px;
+  text-align: center;
+}
+
+/* Compare checkbox (top-right of card) */
+.compare-checkbox {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255,255,255,0.95);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+  z-index: 2;
+}
+.compare-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+/* Compare overlay card */
+#compare-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000001;
+  background: rgba(0,0,0,0.45);
+}
+#compare-card {
+  width: 92%;
+  max-width: 1100px;
+  max-height: 88vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  position: relative;
+}
+#compare-card .close-x {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 18px;
+  cursor: pointer;
+  background: #149580;
+  color: #fff;
+  padding: 0px 6px;
+  line-height: normal;
+  border: none;
+  border-radius: 6px;
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+}
+.compare-table th,
+.compare-table td {
+  border: 1px solid #e5e5e5;
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 14px;
+}
+.compare-table th {
+  background: #f7f7f7;
+  font-weight: 700;
+  color: #333;
+}
+.compare-product-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #149580;
+  margin-bottom: 6px;
+}
+.compare-actions {
+  display:flex;
+  gap:10px;
+  justify-content:center;
+  margin-top:18px;
+}
+.compare-actions .close-compare {
+  background:#fff; color:#149580; padding:10px 16px; border-radius:8px; font-weight:700; cursor:pointer; border:1px solid #149580;
+}
+.compare-product-apply {
+  display:block;
+  width:100%;
+  background:#149580;
+  color:#fff;
+  border:none;
+  padding:6px 10px;
+  border-radius:6px;
+  font-weight:700;
+  cursor:pointer;
+  text-align:center;
+  margin-top:8px;
+  line-height: normal;
+}
+.compare-product-apply.secondary {
+  background:#fff;
+  color:#149580;
+  border:1px solid #149580;
+}
+</style>
+
+<script>
+let fullResults = [];
+let eligibleResults = [];
+let allResults = [];
+let lastRenderedList = [];
+
+// Pagination globals for Load more
+let resultsOffset = 0;
+const resultsPageSize = 10;
+
+/* --- Restore the original global no-scroll behavior (same as your old code) ---
+   This IIFE runs immediately and prevents any later script from auto-focusing
+   or calling scrollIntoView and causing a jump. */
+(function() {
+    const origFocus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function(options) {
+        if (options && typeof options === "object") {
+            options.preventScroll = true;
+        } else {
+            options = { preventScroll: true };
+        }
+        try { origFocus.call(this, options); } catch(e) {}
+    };
+    Element.prototype.scrollIntoView = function() {
+        // Fully block auto-scroll
+    };
+})();
+
+document.addEventListener("DOMContentLoaded", function () {
+    const onPortalPage = document.body.classList.contains("page-id-9549");
+    if (!onPortalPage) return;
+
+    // Guard flag: if set to true, observers will allow padding changes for a short time.
+    window._allowPaddingChange = false;
+    // Guard to indicate intentional hides (so back-to-results observer doesn't fight intended flows)
+    if (typeof window._funderIntentionalHide === 'undefined') window._funderIntentionalHide = false;
+
+    // Compare selection state (persist in sessionStorage so selections survive paging/filtering)
+    if (!window._funder_compare_set) {
+        const saved = sessionStorage.getItem('funder_compare_ids');
+        try {
+            window._funder_compare_set = new Set(saved ? JSON.parse(saved) : []);
+        } catch (e) {
+            window._funder_compare_set = new Set();
+        }
+    }
+
+    // Selected product for CF7 (persist until submission)
+    if (!window._funder_selected_product) {
+        window._funder_selected_product = null;
+    }
+
+    let formJourneyStarted = false;
+    let activeForm = document.querySelector("#forminator-module-10159");
+    let scrollLockUntilStep = null;
+
+    // Keep disabling Forminator scroll helpers (as before)
+    if (window.ForminatorFront && window.ForminatorFront.scrollToTop) {
+        window.ForminatorFront.scrollToTop = function() {};
+    } else {
+        const int = setInterval(() => {
+            if (window.ForminatorFront && window.ForminatorFront.scrollToTop) {
+                window.ForminatorFront.scrollToTop = function() {};
+                clearInterval(int);
+            }
+        }, 50);
+    }
+
+    if (window.ForminatorFront && window.ForminatorFront.scrollToElement) {
+        window.ForminatorFront.scrollToElement = function() {};
+    } else {
+        const int2 = setInterval(() => {
+            if (window.ForminatorFront && window.ForminatorFront.scrollToElement) {
+                window.ForminatorFront.scrollToElement = function() {};
+                clearInterval(int2);
+            }
+        }, 50);
+    }
+
+    // MutationObserver to remove unwanted inline scroll-padding / padding-top changes
+    (function preventInlinePaddingChanges() {
+        const removeIfPresent = (el) => {
+            if (!el || !el.style) return;
+            try {
+                if (!window._allowPaddingChange) {
+                    if (el.style.scrollPaddingTop && el.style.scrollPaddingTop !== '') {
+                        el.style.removeProperty('scroll-padding-top');
+                    }
+                    if (el.style.paddingTop && el.style.paddingTop !== '') {
+                        el.style.removeProperty('padding-top');
+                    }
+                }
+            } catch (e) {}
+        };
+
+        const observerCallback = (mutations) => {
+            for (const m of mutations) {
+                if (m.type === 'attributes' && m.attributeName === 'style') {
+                    removeIfPresent(m.target);
+                }
+            }
+        };
+
+        const opts = { attributes: true, attributeFilter: ['style'], subtree: false };
+        try {
+            const htmlObserver = new MutationObserver(observerCallback);
+            htmlObserver.observe(document.documentElement, opts);
+
+            const bodyObserver = new MutationObserver(observerCallback);
+            bodyObserver.observe(document.body, opts);
+
+            // Clean any existing inline styles at startup
+            removeIfPresent(document.documentElement);
+            removeIfPresent(document.body);
+        } catch (e) {
+            setTimeout(() => {
+                removeIfPresent(document.documentElement);
+                removeIfPresent(document.body);
+            }, 200);
+        }
+    })();
+
+    function hideHeader() {
+        const masthead = document.querySelector("#ct-masthead");
+        const wrap = document.querySelector("#ct-header-wrap");
+        const header = document.querySelector("#ct-header");
+        if (masthead) masthead.style.setProperty("display", "none", "important");
+        if (wrap) wrap.style.setProperty("display", "none", "important");
+        if (header) header.style.setProperty("display", "none", "important");
+        // intentionally do NOT set documentElement.scrollPaddingTop or body.paddingTop here
+    }
+
+    function showHeader() {
+        const masthead = document.querySelector("#ct-masthead");
+        const wrap = document.querySelector("#ct-header-wrap");
+        const header = document.querySelector("#ct-header");
+        if (masthead) masthead.style.removeProperty("display");
+        if (wrap) wrap.style.removeProperty("display");
+        if (header) header.style.removeProperty("display");
+        // intentionally do NOT restore documentElement.scrollPaddingTop or body.paddingTop here
+    }
+
+    document.addEventListener("click", function(e) {
+        if (e.target.id === "start-now-btn") {
+            formJourneyStarted = true;
+            if (window.innerWidth <= 1198) hideHeader();
+        }
+    });
+
+    const observer = new MutationObserver(() => {
+        const results = document.querySelector("#funder-results");
+        if (results && results.style.display !== "none" && window.innerWidth <= 1198) {
+            showHeader();
+            observer.disconnect();
+        }
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["style"]
+    });
+
+    function enterHandler(e) {
+        const key = e.key || e.keyCode;
+        if (key !== "Enter" && key !== 13) return;
+        const form = e.target.closest("form");
+        if (!form) return;
+        const submitBtn = form.querySelector(".forminator-button-submit:not([style*='display: none'])");
+        const nextBtn = form.querySelector(".forminator-button-next:not([style*='display: none'])");
+        if (submitBtn) { e.preventDefault(); submitBtn.click(); return; }
+        if (nextBtn) { e.preventDefault(); nextBtn.click(); }
+    }
+
+    function enableEnterToContinue(form) {
+        if (window.innerWidth > 1198) return;
+        form.querySelectorAll("input, select, textarea").forEach(el => {
+            el.removeEventListener("keydown", enterHandler, true);
+            el.addEventListener("keydown", enterHandler, true);
+        });
+    }
+
+    function forceTop() { window.scrollTo(0, 0); }
+
+    function clearRadios(form) {
+        if (!form) return;
+        const radios = form.querySelectorAll("input[type='radio']");
+        radios.forEach(r => {
+            r.checked = false;
+            const label = r.closest("label.forminator-radio");
+            if (label) label.classList.remove("forminator-is_checked");
+        });
+    }
+
+    function wireRadios(form) {
+        if (!form) return;
+        const nextBtn = form.querySelector(".forminator-button-next");
+        if (!nextBtn) return;
+        const radios = form.querySelectorAll("input[type='radio']");
+        const visibleRadios = Array.from(radios).filter(r => r.offsetParent !== null);
+        if (!visibleRadios.length) {
+            nextBtn.style.display = "";
+            return;
+        }
+        nextBtn.style.display = "none";
+        visibleRadios.forEach(radio => {
+            if (radio.dataset.autoWired === "1") return;
+            radio.dataset.autoWired = "1";
+            radio.addEventListener("click", (e) => {
+                e.target.blur();
+                if (radio.checked) {
+                    radio.checked = false;
+                    setTimeout(() => {
+                        radio.checked = true;
+                        radio.dispatchEvent(new Event("change", { bubbles: true }));
+                    }, 0);
+                }
+            });
+            radio.addEventListener("change", () => {
+                if (!radio.checked) return;
+                nextBtn.click();
+                requestAnimationFrame(() => applyScrollLockIfNeeded());
+            });
+        });
+    }
+
+    function getCurrentStep(form) {
+        if (!form) return null;
+        const pages = form.querySelectorAll(".forminator-pagination");
+        for (const page of pages) {
+            const hidden = page.hidden || page.getAttribute("aria-hidden") === "true";
+            const style = page.getAttribute("style") || "";
+            const visible = !hidden && !style.includes("opacity: 0") && !style.includes("visibility: hidden");
+            if (visible) {
+                const step = parseInt(page.getAttribute("data-step"), 10);
+                if (!isNaN(step)) return step;
+            }
+        }
+        return null;
+    }
+
+    function applyScrollLockIfNeeded() {
+        if (!activeForm) return;
+        if (!formJourneyStarted) return;
+        const step = getCurrentStep(activeForm);
+        if (step === null) return;
+        if (scrollLockUntilStep !== null && step <= scrollLockUntilStep) {
+            window.scrollTo(0, 0);
+        } else if (scrollLockUntilStep !== null && step > scrollLockUntilStep) {
+            scrollLockUntilStep = null;
+        }
+    }
+
+    const stepObserver = new MutationObserver(() => {
+        if (!activeForm) return;
+        wireRadios(activeForm);
+        enableEnterToContinue(activeForm);
+    });
+
+    const routerContainer = document.getElementById("router-form");
+    if (routerContainer) {
+        stepObserver.observe(routerContainer, { childList: true, subtree: true });
+    }
+
+    function reattachObserverToForm(form) {
+        try { stepObserver.disconnect(); } catch (e) {}
+        if (!form) return;
+        stepObserver.observe(form, { childList: true, subtree: true });
+    }
+
+    // showForm: temporarily allow padding changes and keep Forminator suppression while switching
+    function showForm(containerId, moduleId) {
+        // Temporarily allow padding changes while switching (short window)
+        window._allowPaddingChange = true;
+        setTimeout(() => { window._allowPaddingChange = false; }, 520);
+
+        // Also keep Forminator suppressed for the switch
+        if (window.ForminatorFront && window.ForminatorFront.scrollToTop) {
+            // already suppressed above
+        }
+
+        document.getElementById("router-form").style.display = "none";
+        document.getElementById("btl-form").style.display = "none";
+        document.getElementById("commercial-form").style.display = "none";
+        document.getElementById("coming-soon").style.display = "none";
+        const container = document.getElementById(containerId);
+        if (container) container.style.display = "block";
+        activeForm = container ? container.querySelector(`#${moduleId}`) : null;
+        clearRadios(activeForm);
+        scrollLockUntilStep = 1;
+        setTimeout(() => {
+            wireRadios(activeForm);
+            enableEnterToContinue(activeForm);
+            applyScrollLockIfNeeded();
+        }, 150);
+        reattachObserverToForm(activeForm);
+    }
+
+    document.addEventListener("change", function (e) {
+        const routerVisible = document.getElementById("router-form") && document.getElementById("router-form").offsetParent !== null;
+        if (!routerVisible) return;
+        if (!e.target.matches("input[type='radio']")) return;
+        const val = e.target.value;
+        if (val === "btlmortgage") { showForm("btl-form", "forminator-module-9548"); return; }
+        if (val === "commmortgage") { showForm("commercial-form", "forminator-module-10157"); return; }
+        document.getElementById("router-form").style.display = "none";
+        document.getElementById("coming-soon").style.display = "block";
+        clearRadios(document.querySelector("#forminator-module-10159"));
+        activeForm = null;
+        scrollLockUntilStep = null;
+        // do not forceTop here; keep natural position
+    });
+
+    let handled = false;
+    const successObs = new MutationObserver(() => {
+        if (!activeForm) return;
+        const success = activeForm.querySelector(".forminator-response-message:not([aria-hidden='true'])");
+        if (success && !handled) {
+            handled = true;
+            requestAnimationFrame(() => {
+                const formData = {};
+                const fields = activeForm.querySelectorAll("[name]");
+                fields.forEach(field => {
+                    const name = field.name.replace("[]", "");
+                    if (field.type === "radio") {
+                        const label = field.closest("label.forminator-radio");
+                        if (!label || !label.classList.contains("forminator-is_checked")) return;
+                    }
+                    let question = "";
+                    const wrapper = field.closest(".forminator-field");
+                    if (wrapper) {
+                        const qLabel = wrapper.querySelector(".forminator-label");
+                        if (qLabel) question = qLabel.innerText.trim();
+                    }
+                    if (!formData[name]) formData[name] = { question: question, values: [] };
+                    if (!field.value) return;
+                    formData[name].values.push(field.value.trim());
+                });
+
+                // persist parsed answers so displayResults can pre-activate relevant toggles
+                window._funder_form_answers = formData;
+
+                fetch("/?funder_match=1", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(formData)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    displayResults(data);
+                });
+            });
+        }
+    });
+
+    successObs.observe(document.body, { childList: true, subtree: true });
+
+    /* -------------------------
+       DISPLAY + FILTERING LOGIC
+    ------------------------- */
+
+    // Normaliser used for dedupe and intersection
+    function norm(s) {
+        if (s === undefined || s === null) return '';
+        return String(s)
+            .replace(/\u00A0/g, ' ')
+            .replace(/[^\w\s\.\-\/%£€\d]/g, '')
+            .replace(/[\u2010-\u2015]/g, '-')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
+    function preactivateRateAndPropToggles(answers) {
+        if (!answers || typeof answers !== 'object') return;
+        function firstValue(v) {
+            if (v === undefined || v === null) return '';
+            if (typeof v === 'string') return v;
+            if (Array.isArray(v) && v.length) return v[0];
+            if (typeof v === 'object' && Array.isArray(v.values) && v.values.length) return v.values[0];
+            return String(v);
+        }
+        function activate(toggleKey, value) {
+            if (!value) return;
+            const sel = `.btl-toggle[data-toggle="${toggleKey}"][data-value="${String(value).toLowerCase()}"]`;
+            const btn = document.querySelector(sel);
+            if (!btn) return;
+            if (!btn.classList.contains('active')) {
+                btn.classList.add('active');
+                btn.style.background = "#149580";
+                btn.style.color = "white";
+                btn.style.borderColor = "#149580";
+            }
+        }
+        const rawRate = firstValue(answers['radio-21'] || answers['rate_type'] || answers['radio-6'] || '');
+        const rateAns = String(rawRate || '').toLowerCase();
+        if (rateAns) {
+            if (rateAns.includes('fix')) activate('rate_type', 'fixed');
+            if (rateAns.includes('var') || rateAns.includes('track') || rateAns.includes('tracker') || rateAns.includes('discount')) activate('rate_type', 'variable');
+        }
+        const hmoRaw = firstValue(answers['radio-18'] || answers['hmo'] || '');
+        const mufbRaw = firstValue(answers['radio-22'] || answers['mufb'] || '');
+        const holidayRaw = firstValue(answers['radio-23'] || answers['holiday'] || '');
+        const hmo = String(hmoRaw || '').toLowerCase();
+        const mufb = String(mufbRaw || '').toLowerCase();
+        const holiday = String(holidayRaw || '').toLowerCase();
+        if (hmo === 'yes' || hmo === 'hmo') activate('prop_type', 'hmo');
+        if (mufb === 'yes' || mufb === 'mufb') activate('prop_type', 'mufb');
+        if (holiday === 'yes' || holiday === 'holiday') activate('prop_type', 'holiday');
+    }
+
+    function displayResults(data) {
+        window.lastResults = Array.isArray(data.matched_results) ? data.matched_results.slice() : [];
+        console.log("RESULT SAMPLE:", (data.matched_results || [])[0]);
+
+        const container = document.getElementById("funder-results");
+        const content = document.getElementById("funder-results-content");
+        if (!container || !content) return;
+
+        fullResults = Array.isArray(data.all_results) ? data.all_results.slice() : [];
+        eligibleResults = Array.isArray(data.matched_results) ? data.matched_results.slice() : [];
+        allResults = Array.isArray(data.all_results) ? data.all_results.slice() : [];
+
+        let html = "";
+
+        html += `
+            <div style="
+                background:#e6f7ec;
+                border:1px solid #14958055;
+                padding:28px 20px;
+                border-radius:8px;
+                margin-top:14px;
+                margin-bottom:20px;
+                font-size:16px;
+                color:#149580;
+                font-weight:600;
+                text-align: center;
+            ">
+                <div>🎉 Congratulations!</div>
+                <div>We've found lenders you're eligible for you. Review your matched options below.</div>
+            </div>
+        `;
+
+        if (!data || !data.matched_results || data.matched_results.length === 0) {
+            content.innerHTML = `
+                <div style="
+                    background:#fff8e6;
+                    border:1px solid #e6c77c;
+                    padding:18px 20px;
+                    border-radius:8px;
+                    margin-bottom:20px;
+                    margin-top:14px;
+                    font-size:16px;
+                    color:#8a6d1d;
+                    font-weight:600;
+                    text-align:center;
+                ">
+                    <div>We haven’t found any eligible options on our portal this time.</div>
+                    <div>One of our team will be happy to run a full market search for you.</div>
+                </div>
+
+                <button id="no-results-apply-btn"
+                    style="
+                        background:#149580;
+                        color:white;
+                        border-radius:6px;
+                        font-size:12px;
+                        font-weight:600;
+                        line-height:36px;
+                        cursor:pointer;
+                        margin-top:10px;
+                        display: block;
+                        margin: 20px auto 0 auto;
+                        text-align: center;
+                    ">
+                    Request Call
+                </button>
+                <div id="restart-search-link"
+                     style="
+                        text-align:center;
+                        margin-top:16px;
+                        font-size:14px;
+                        color:#149580;
+                        cursor:pointer;
+                        font-weight:500;
+                     ">
+                    Restart Search
+                </div>
+            `;
+            container.style.display = "block";
+
+            if (activeForm) {
+                const productWrapper = activeForm.closest("div[id$='-form']");
+                if (productWrapper) productWrapper.style.display = "none";
+                const elementorWrapper = activeForm.closest(".elementor-widget-container");
+                if (elementorWrapper) elementorWrapper.style.display = "none";
+                const widget = activeForm.closest(".elementor-element.elementor-widget-html");
+                if (widget) widget.style.display = "none";
+                activeForm.style.display = "none";
+                const pagination = activeForm.querySelector(".forminator-pagination");
+                if (pagination) pagination.style.display = "none";
+                clearRadios(activeForm);
+            }
+
+            const noResultsApplyBtn = document.getElementById("no-results-apply-btn");
+            const restartSearch = document.getElementById("restart-search-link");
+            if (restartSearch) restartSearch.addEventListener("click", () => {
+                // clear compare selections before reload
+                try { sessionStorage.removeItem('funder_compare_ids'); } catch(e) {}
+                try { sessionStorage.removeItem('funder_selected_product'); } catch(e) {}
+                if (window._funder_compare_set) window._funder_compare_set = new Set();
+                updateCompareUI();
+                window.location.reload();
+            });
+            if (noResultsApplyBtn) {
+                noResultsApplyBtn.addEventListener("click", () => {
+                    // mark intentional hide so back-to-results observer doesn't immediately show button
+                    window._funderIntentionalHide = true;
+                    setTimeout(() => { window._funderIntentionalHide = false; }, 700);
+
+                    container.style.display = "none";
+                    const progressContainer = document.getElementById("progress-form-container");
+                    if (progressContainer) {
+                        // show with !important so it can override any previous important hide
+                        try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
+                        // ensure any elements previously hidden by our script are restored before showing
+                        document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+                            try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+                            try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+                        });
+                    }
+                    fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ log: data.log || "No log available" })
+                    })
+                    .then(res => res.json())
+                    .then(resp => {
+                        const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
+                        if (cf7Hidden) cf7Hidden.value = resp.key;
+                    });
+                    forceTop();
+
+                    // update visibility immediately and after a short delay to catch CF7 init
+                    updateBackToResultsVisibility();
+                    setTimeout(updateBackToResultsVisibility, 300);
+                });
+            }
+
+            forceTop();
+            updateBackToResultsVisibility();
+            return;
+        }
+
+        const totalResults = allResults.length;
+
+        html += `
+            <div id="results-summary" style="
+                font-size:14px;
+                color:#555;
+                font-weight:500;
+                margin-bottom:14px;
+                text-align: center;
+            ">
+                Showing results (paginated)
+            </div>
+        `;
+
+        html += `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+                <button id="toggle-filters" style="flex:1; height:34px; padding:0 12px; background:#149580; color:white; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center;">Filters</button>
+                <select id="btl-sort" style="flex:1; height:34px; padding:0 10px; border-radius:6px; border:1px solid #ccc; font-size:13px; background:white; cursor:pointer;">
+                    <option value="rate" selected>Lowest rate</option>
+                    <option value="annual_cost">Lowest annual cost</option>
+                    <option value="ltv">Highest LTV</option>
+                </select>
+            </div>
+        `;
+
+        html += `
+            <div id="filters-container" style="height:0; overflow:hidden; transition:height 0.35s ease; padding:0 12px; border:1px solid #ddd; border-radius:8px; background:#f7f7f7; margin-bottom:20px;">
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#444;">Rate Type</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btl-toggle" data-toggle="rate_type" data-value="fixed" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">Fixed</button>
+                        <button class="btl-toggle" data-toggle="rate_type" data-value="variable" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">Variable</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#444;">Term</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btl-toggle" data-toggle="product_term" data-value="2" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">2 year</button>
+                        <button class="btl-toggle" data-toggle="product_term" data-value="5" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">5 year</button>
+                        <button class="btl-toggle" data-toggle="product_term" data-value="lifetime" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">Lifetime</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#444;">Fees</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btl-toggle" data-toggle="zero_fee" data-value="1" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">Zero Fee</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#444;">Property Type</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btl-toggle" data-toggle="prop_type" data-value="hmo" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">HMO</button>
+                        <button class="btl-toggle" data-toggle="prop_type" data-value="mufb" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">MUFB</button>
+                        <button class="btl-toggle" data-toggle="prop_type" data-value="holiday" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">Holiday Let</button>
+                        <button class="btl-toggle" data-toggle="prop_type" data-value="standard" style="padding:6px 14px; height:32px; border-radius:6px; border:1px solid #ccc; background:#fff; color:#333; font-size:12px; font-weight:500; cursor:pointer;">Standard BTL</button>
+                    </div>
+                </div>
+
+                <div style="margin-top:10px; text-align:right;">
+                    <span id="clear-filters" style="font-size:12px; color:#149580; cursor:pointer; font-weight:500;">Clear filters</span>
+                </div>
+            </div>
+        `;
+
+        html += `
+            <div id="results-list"></div>
+            <div style="margin-top:25px; display:flex; justify-content:space-between; align-items:center;">
+                <button id="reset-form" style="padding:8px 12px; cursor:pointer; background:none; box-shadow: none; color:#149580; border-radius:4px; font-size:14px;">Start Over</button>
+                <button id="progress-btn" style="display: none; padding:12px 20px; cursor:pointer; background:#0275d8; color:white; border-radius:4px; font-size:16px; font-weight:bold;">Progress</button>
+            </div>
+        `;
+
+        content.innerHTML = html;
+        container.style.display = "block";
+
+        if (activeForm) {
+            const productWrapper = activeForm.closest("div[id$='-form']");
+            if (productWrapper) productWrapper.style.display = "none";
+            const elementorWrapper = activeForm.closest(".elementor-widget-container");
+            if (elementorWrapper) elementorWrapper.style.display = "none";
+            const widget = activeForm.closest(".elementor-element.elementor-widget-html");
+            if (widget) widget.style.display = "none";
+            activeForm.style.display = "none";
+            const pagination = activeForm.querySelector(".forminator-pagination");
+            if (pagination) pagination.style.display = "none";
+            clearRadios(activeForm);
+        }
+
+        scrollLockUntilStep = null;
+
+        const resetBtn = document.getElementById("reset-form");
+        const progressBtn = document.getElementById("progress-btn");
+
+        const progressHandler = () => {
+            // mark intentional hide so back-to-results observer doesn't immediately show button
+            window._funderIntentionalHide = true;
+            setTimeout(() => { window._funderIntentionalHide = false; }, 700);
+
+            container.style.display = "none";
+            const progressContainer = document.getElementById("progress-form-container");
+            if (progressContainer) {
+                // Before showing, restore any elements we previously forced-hidden
+                document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+                    try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+                    try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+                });
+                // show with !important so it can override any previous important hide
+                try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
+            }
+            fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ log: data.log || "No log available" })
+            })
+            .then(res => res.json())
+            .then(resp => {
+                const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
+                if (cf7Hidden) cf7Hidden.value = resp.key;
+            });
+            forceTop();
+
+            // update visibility immediately and after a short delay to catch CF7 init
+            updateBackToResultsVisibility();
+            setTimeout(updateBackToResultsVisibility, 300);
+        };
+
+        if (resetBtn) {
+            resetBtn.addEventListener("click", () => {
+                // clear compare selections before reload so compare button doesn't persist
+                try { sessionStorage.removeItem('funder_compare_ids'); } catch(e) {}
+                try { sessionStorage.removeItem('funder_selected_product'); } catch(e) {}
+                if (window._funder_compare_set) window._funder_compare_set = new Set();
+                updateCompareUI();
+                window.location.reload();
+            });
+        }
+        if (progressBtn) progressBtn.addEventListener("click", progressHandler);
+        const noResultsApplyBtn = document.getElementById("no-results-apply-btn");
+        if (noResultsApplyBtn) noResultsApplyBtn.addEventListener("click", progressHandler);
+
+        if (window._funder_form_answers) preactivateRateAndPropToggles(window._funder_form_answers);
+
+        wireFilterControls();
+        applyFiltersAndSort();
+
+        updateBackToResultsVisibility();
+    }
+
+    /* -------------------------
+       RENDER + FILTER HELPERS
+    ------------------------- */
+
+    const cardStyle = `
+        border:1px solid #e5e5e5;
+        border-radius:10px;
+        padding:20px;
+        margin-bottom:20px;
+        background:white;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05), inset 0 2px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 3px rgba(0, 0, 0, 0.05);
+        margin-top: 14px;
+        position: relative;
+    `;
+
+    const tagBlue = `
+        display:inline-block;
+        background:#e8f4ff;
+        color:#08467f;
+        padding:4px 10px;
+        border-radius:5px;
+        font-size:12px;
+        font-weight:600;
+        margin-right:2px;
+    `;
+
+    const tagGreen = `
+        display:inline-block;
+        background:#e6f7ec;
+        color:#149580;
+        padding:4px 10px;
+        border-radius:5px;
+        font-size:12px;
+        font-weight:600;
+    `;
+
+    const statLabel = `
+        font-size:12px;
+        color:#666;
+        margin-bottom:2px;
+    `;
+
+    const statValue = `
+        font-size:16px;
+        font-weight:700;
+        color:#222;
+    `;
+
+    // ---------- Helpers for numeric parsing and LTV/serviceability ----------
+
+    // Parse a currency/number string into a float (handles "£", commas, "k", etc.)
+    function parseCurrencyNumber(s) {
+        if (s === undefined || s === null) return null;
+        let str = String(s).trim().toLowerCase();
+        if (!str) return null;
+        str = str.replace(/£/g, '').replace(/,/g, '').replace(/\s+/g, '');
+        if (str === '') return null;
+        if (str.endsWith('k')) {
+            const n = parseFloat(str.replace(/k$/, ''));
+            return isNaN(n) ? null : n * 1000;
+        }
+        const n = parseFloat(str.replace(/[^0-9.\-]/g, ''));
+        return isNaN(n) ? null : n;
+    }
+
+    // Read a single value from persisted form answers (handles arrays/objects)
+    function answerFirstNumeric(key) {
+        const answers = window._funder_form_answers || {};
+        if (!answers[key]) return null;
+        const raw = answers[key].values ? answers[key].values[0] : (Array.isArray(answers[key]) ? answers[key][0] : answers[key]);
+        return parseCurrencyNumber(raw);
+    }
+
+    // Compute loan amount and user LTV and monthly rental income from the form
+    // Returns { loanAmount: number|null, purchasePrice: number|null, propertyValue: number|null, userLtv: number|null, monthlyRental: number|null }
+    function computeUserLoanAndLtv() {
+        const purchase = answerFirstNumeric('currency-3');      // purchase price
+        const deposit = answerFirstNumeric('currency-4');       // deposit
+        const outstanding = answerFirstNumeric('currency-5');   // outstanding mortgage
+        const additional = answerFirstNumeric('currency-17');   // additional finance requested
+        const propValue = answerFirstNumeric('currency-18');    // property value (for remortgage)
+        const monthlyRental = answerFirstNumeric('currency-6'); // monthly rental income
+
+        let loanAmount = null;
+        if (purchase !== null && deposit !== null) {
+            loanAmount = purchase - deposit;
+        } else if (outstanding !== null) {
+            loanAmount = outstanding + (additional || 0);
+        } else if (additional !== null && propValue !== null) {
+            loanAmount = additional;
+        }
+
+        let denom = null;
+        if (purchase !== null) denom = purchase;
+        else if (propValue !== null) denom = propValue;
+
+        let userLtv = null;
+        if (loanAmount !== null && denom !== null && denom > 0) {
+            userLtv = (loanAmount / denom) * 100;
+            userLtv = Math.round(userLtv * 100) / 100;
+        }
+
+        return {
+            loanAmount: (loanAmount !== null && !isNaN(loanAmount)) ? loanAmount : null,
+            purchasePrice: (purchase !== null && !isNaN(purchase)) ? purchase : null,
+            propertyValue: (propValue !== null && !isNaN(propValue)) ? propValue : null,
+            userLtv: (userLtv !== null && !isNaN(userLtv)) ? userLtv : null,
+            monthlyRental: (monthlyRental !== null && !isNaN(monthlyRental)) ? monthlyRental : null
+        };
+    }
+
+    // parseProductRate remains for serviceability/eligibility (min_serviceability_rate fallback)
+    function parseProductRate(product) {
+        const msr = product.min_serviceability_rate ?? product.min_serviceability_rate_display ?? product.min_serviceability_rate_value;
+        if (msr !== undefined && msr !== null && String(msr).trim() !== '') {
+            const n = parseFloat(String(msr).replace(/[^0-9.\-]/g, ''));
+            if (!isNaN(n)) return n;
+        }
+        const rf = product.rates_from ?? product.rates_from_display ?? product.rates_from_value;
+        if (rf !== undefined && rf !== null && String(rf).trim() !== '') {
+            const n = parseFloat(String(rf).replace(/[^0-9.\-]/g, ''));
+            if (!isNaN(n)) return n;
+        }
+        return null;
+    }
+
+    // For monthly interest we MUST prefer rates_from specifically (user requested)
+    function numericRateFromRatesFrom(product) {
+        const rf = product.rates_from ?? product.rates_from_display ?? product.rates_from_value;
+        if (rf === undefined || rf === null) return null;
+        const s = String(rf).trim();
+        if (s === '') return null;
+        const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
+        return isNaN(n) ? null : n;
+    }
+
+    function formatCurrency(n) {
+        if (n === null || n === undefined || isNaN(n)) return '—';
+        return '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // Format currency with zero decimals for Amount required (compact on mobile)
+    function formatCurrencyZeroDecimals(n) {
+        if (n === null || n === undefined || isNaN(n)) return '—';
+        return '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function formatRateDisplay(raw) {
+        if (raw === undefined || raw === null) return '—';
+        const s = String(raw).trim();
+        if (s === '') return '—';
+        if (s.includes('%')) return s;
+        // if numeric, append %
+        const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
+        if (!isNaN(n)) return n + '%';
+        return s;
+    }
+
+    // Safer renderResultsList using matching_id as authoritative identifier and Load more (append + animation)
+    function renderResultsList(list, fullFilteredList) {
+        const listContainer = document.getElementById("results-list");
+        if (!listContainer) return;
+
+        const source = Array.isArray(fullFilteredList) && fullFilteredList.length ? fullFilteredList.slice() : Array.isArray(list) ? list.slice() : [];
+
+        if (!source || source.length === 0) {
+            listContainer.innerHTML = `
+                <div style="
+                    background:#fff8e6;
+                    border:1px solid #e6c77c;
+                    padding:14px 16px;
+                    border-radius:8px;
+                    margin-top:10px;
+                    font-size:14px;
+                    color:#8a6d1d;
+                    text-align:center;
+                ">
+                    No results match your current filters. Try adjusting your selections.
+                </div>
+            `;
+            console.log('RENDER DEBUG: source empty');
+            // update back-to-results visibility after rendering
+            updateBackToResultsVisibility();
+            return;
+        }
+
+        console.log('RENDER DEBUG: sourceCount', source.length, 'sampleSource', source.slice(0,5));
+
+        // Dedupe: only collapse when matching_id exists; otherwise treat rows as distinct
+        const seen = new Set();
+        const unique = [];
+        for (const item of source) {
+            const mid = String(item.matching_id || item.matching_id_value || item.id || item.product_id || item.lending_product || '').trim();
+            if (mid) {
+                if (!seen.has(mid)) {
+                    seen.add(mid);
+                    unique.push(item);
+                }
+            } else {
+                unique.push(item);
+            }
+        }
+
+        console.log('RENDER DEBUG: uniqueCount', unique.length, 'sampleUnique', unique.slice(0,5));
+
+        if (!unique.length) {
+            listContainer.innerHTML = `
+                <div style="
+                    background:#fff8e6;
+                    border:1px solid #e6c77c;
+                    padding:14px 16px;
+                    border-radius:8px;
+                    margin-top:10px;
+                    font-size:14px;
+                    color:#8a6d1d;
+                    text-align:center;
+                ">
+                    No unique results after dedupe. Showing raw filtered sample in console for inspection.
+                </div>
+            `;
+            console.warn('RENDER WARNING: dedupe removed all items; inspect source and eligibleResults in console.');
+            console.log('SOURCE SAMPLE', source.slice(0,10));
+            updateBackToResultsVisibility();
+            return;
+        }
+
+        // Determine slice for current page
+        const start = Math.max(0, resultsOffset || 0);
+        const end = start + resultsPageSize;
+
+        // Build HTML for the page (cards will be wrapped with .result-card and .new for animation)
+        let cardsHtml = "";
+
+        // If this is the first page and there is at least one item, render Best Match as first of the full unique list
+        if (start === 0 && unique.length > 0) {
+            const best = unique[0];
+            const bestMid = String(best.matching_id || best.matching_id_value || best.id || best.product_id || best.lending_product || '').trim();
+            const checkedAttr = window._funder_compare_set.has(bestMid) ? 'checked' : '';
+            cardsHtml += `
+                <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
+                    <label class="compare-checkbox"><input type="checkbox" class="compare-select" data-matching-id="${bestMid}" ${checkedAttr}> Compare</label>
+                    <div style="font-size:16px; font-weight:700; margin-bottom:10px;">Best Match ⭐</div>
+                    <div style="margin-bottom:12px;">
+                        <span style="${tagBlue}">${best.lending_product || best.product_name || ''}</span>
+                        <span style="${tagGreen}">${best.caption || ''}</span>
+                    </div>
+                    <div style="display:flex; gap:30px; margin-bottom:15px;">
+                        <div><div style="${statLabel}">Rates from</div><div style="${statValue}">${formatRateDisplay(best.rates_from || best.rates_from_display || best.rates_from_value || '')}</div></div>
+                        <div><div style="${statLabel}">Max LTV</div><div style="${statValue}">${best.max_ltv || ''}%</div></div>
+                        <div><div style="${statLabel}">Max Term</div><div style="${statValue}">${best.max_term || ''} years</div></div>
+                    </div>
+                    <div style="font-size:14px; color:#444; margin-bottom:20px; border-top: 1px solid #4445;">${best.description || ''}</div>
+                    <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
+                        <button class="apply-btn" data-matching-id="${bestMid}" style="background:#149580; color:white; border-radius:6px; font-size:12px; font-weight:600; line-height:36px; cursor:pointer; padding:0 18px;">Apply</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // If Best Match was included above, avoid duplicating it in page items
+        const pageStartIndex = (start === 0) ? 1 : start;
+        const pageSlice = unique.slice(pageStartIndex, end);
+
+        // Render pageSlice items
+        pageSlice.forEach(opt => {
+            const mid = String(opt.matching_id || opt.matching_id_value || opt.id || opt.product_id || opt.lending_product || '').trim();
+            const checkedAttr = window._funder_compare_set.has(mid) ? 'checked' : '';
+            cardsHtml += `
+                <div class="result-card new" style="${cardStyle}">
+                    <label class="compare-checkbox"><input type="checkbox" class="compare-select" data-matching-id="${mid}" ${checkedAttr}> Compare</label>
+                    <div style="margin-bottom:12px;">
+                        <span style="${tagBlue}">${opt.lending_product || opt.product_name || ''}</span>
+                        <span style="${tagGreen}">${opt.caption || ''}</span>
+                    </div>
+                    <div style="display:flex; gap:30px; margin-bottom:15px;">
+                        <div><div style="${statLabel}">Rates from</div><div style="${statValue}">${formatRateDisplay(opt.rates_from || opt.rates_from_display || opt.rates_from_value || '')}</div></div>
+                        <div><div style="${statLabel}">Max LTV</div><div style="${statValue}">${opt.max_ltv || ''}%</div></div>
+                        <div><div style="${statLabel}">Max Term</div><div style="${statValue}">${opt.max_term || ''} years</div></div>
+                    </div>
+                    <div style="font-size:14px; color:#444; margin-bottom:20px; border-top: 1px solid #4445;">${opt.description || ''}</div>
+                    <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
+                        <button class="apply-btn" data-matching-id="${mid}" style="background:#149580; color:white; border-radius:6px; font-size:12px; font-weight:600; line-height:36px; cursor:pointer; padding:0 18px;">Apply</button>
+                    </div>
+                </div>
+            `;
+        });
+
+        // Add Load more button if there are more items after this page
+        const remaining = unique.length - end;
+        const loadMoreHtml = remaining > 0 ? `
+            <div class="load-more-wrapper">
+                <button id="load-more-results" style="
+                    background:#fff;
+                    border:1px solid #14958030;
+                    color:#149580;
+                    padding:10px 18px;
+                    border-radius:8px;
+                    font-weight:700;
+                    cursor:pointer;
+                    font-size:13px;
+                ">Load more (${Math.min(resultsPageSize, remaining)})</button>
+            </div>
+        ` : '';
+
+        // If first page, replace content; otherwise append
+        if (start === 0) {
+            // clear container and insert first page + load more
+            listContainer.innerHTML = cardsHtml + loadMoreHtml;
+        } else {
+            // remove any existing load-more wrapper so it doesn't remain in the middle
+            const existingWrappers = listContainer.querySelectorAll('.load-more-wrapper');
+            existingWrappers.forEach(w => w.remove());
+
+            // append new items and new load-more at the bottom
+            listContainer.insertAdjacentHTML('beforeend', cardsHtml + loadMoreHtml);
+        }
+
+        // Wire Load more (only the bottom one)
+        const loadMoreBtn = document.getElementById("load-more-results");
+        if (loadMoreBtn) {
+            // replace to ensure no duplicate listeners
+            const newBtn = loadMoreBtn.cloneNode(true);
+            loadMoreBtn.parentNode.replaceChild(newBtn, loadMoreBtn);
+            newBtn.addEventListener("click", () => {
+                // increment offset by page size (append next page)
+                resultsOffset = Math.min(unique.length, (resultsOffset || 0) + resultsPageSize);
+                // re-render using same filtered list (fullFilteredList) — this will append new items
+                renderResultsList(null, fullFilteredList);
+                // optional: smooth scroll to the first newly loaded item after animation starts
+                setTimeout(() => {
+                    const listEl = document.getElementById("results-list");
+                    if (listEl) {
+                        const children = listEl.querySelectorAll('.result-card');
+                        const firstNewIndex = resultsOffset; // cumulative index in unique list
+                        if (children && children[firstNewIndex]) {
+                            children[firstNewIndex].scrollIntoView({ behavior: "smooth", block: "start" });
+                        }
+                    }
+                }, 160);
+            });
+        }
+
+        // Animate newly inserted .result-card.new elements (staggered)
+        requestAnimationFrame(() => {
+            const newCards = listContainer.querySelectorAll('.result-card.new');
+            newCards.forEach((el, idx) => {
+                setTimeout(() => {
+                    el.classList.add('show');
+                    // cleanup classes after animation completes
+                    setTimeout(() => {
+                        el.classList.remove('new', 'show');
+                    }, 420);
+                }, 40 * idx);
+            });
+        });
+
+        // Update lastRenderedList for debugging (cumulative up to 'end')
+        lastRenderedList = unique.slice(0, Math.min(unique.length, end));
+        console.log('RENDER DEBUG', { renderedCount: lastRenderedList.length, offset: resultsOffset, pageSize: resultsPageSize });
+
+        // update back-to-results visibility after rendering
+        updateBackToResultsVisibility();
+
+        // ensure compare UI state is correct after render
+        updateCompareUI();
+    }
+
+    // ---------- Enhanced filtering with LTV and serviceability ----------
+
+    function getActiveFilters() {
+        const active = {};
+        document.querySelectorAll(".btl-toggle.active").forEach(btn => {
+            const key = btn.dataset.toggle;
+            const value = btn.dataset.value;
+            if (!active[key]) active[key] = [];
+            active[key].push(String(value).toLowerCase());
+        });
+        if (active.zero_fee && active.zero_fee.length) active.zero_fee = true;
+        return active;
+    }
+
+    function normaliseRateType(rt) {
+        rt = String(rt || '').toLowerCase();
+        if (rt.includes('fix') || rt.includes('fixed')) return 'fixed';
+        if (rt.includes('track') || rt.includes('tracker')) return 'tracker';
+        if (rt.includes('discount')) return 'variable';
+        if (rt.includes('var') || rt.includes('variable') || rt.includes('svr')) return 'variable';
+        return rt;
+    }
+
+    function parseFeeNumeric(feeRaw) {
+        if (feeRaw === undefined || feeRaw === null) return null;
+        const s = String(feeRaw).trim().toLowerCase();
+        if (s === '' || s === 'n/a' || s === 'none') return null;
+        if (s.includes('free') || s.includes('zero') || s === '0' || s === '£0' || s.includes('no fee')) return 0;
+        const cleaned = s.replace(/[^0-9.\-]/g, '');
+        if (cleaned === '' || cleaned === '.' || cleaned === '-') return null;
+        const n = parseFloat(cleaned);
+        return isNaN(n) ? null : n;
+    }
+
+    function getFilteredResults(filters, sortValue) {
+        const src = Array.isArray(fullResults) ? fullResults.slice() : [];
+        let results = src.filter(item => !!item);
+
+        // RATE TYPE (explicit column)
+        if (filters.rate_type?.length) {
+            results = results.filter(item => {
+                const rt = String(item.rate_type || item.loan_type || '').toLowerCase();
+                if (filters.rate_type.includes('fixed')) return rt === 'fixed' || rt.includes('fixed');
+                if (filters.rate_type.includes('variable')) return rt === 'variable' || rt.includes('track') || rt.includes('tracker') || rt.includes('svr') || rt.includes('discount');
+                return true;
+            });
+        }
+
+        // ZERO FEE (explicit column or parsed fee)
+        if (filters.zero_fee) {
+            results = results.filter(item => {
+                const z = String(item.zero_fee || item.zero_fee_flag || '').toLowerCase();
+                if (z === '1' || z === 'yes' || z === 'true') return true;
+                const fee = parseFeeNumeric(item.product_fee ?? item.fee ?? '');
+                return fee === 0;
+            });
+        }
+
+        // PROPERTY TYPE (explicit accepts_* columns)
+        if (filters.prop_type?.length) {
+            results = results.filter(item => {
+                const p = String(item.prop_type || '').toLowerCase();
+                return filters.prop_type.every(req => {
+                    if (req === 'hmo') return p === 'hmo' || String(item.accepts_hmo || '').toLowerCase() === 'yes';
+                    if (req === 'mufb') return p === 'mufb' || String(item.accepts_mufb || '').toLowerCase() === 'yes';
+                    if (req === 'holiday') return p === 'holiday' || String(item.accepts_holiday || item.accepts_hol || '').toLowerCase() === 'yes';
+                    if (req === 'standard') return p === 'standard' || p === '';
+                    return true;
+                });
+            });
+        }
+
+        // PRODUCT TERM (explicit product_term or max_term)
+        if (filters.product_term?.length) {
+            results = results.filter(item => {
+                const term = String(item.product_term || item.product_term_display || item.max_term || '').toLowerCase();
+                return filters.product_term.some(req => String(term).includes(String(req).toLowerCase()));
+            });
+        }
+
+        // ---------- Loan / LTV / min/max loan checks and serviceability ----------
+
+        const user = computeUserLoanAndLtv();
+
+        results = results.filter(item => {
+            // min_loan / max_loan enforcement
+            const minLoan = parseCurrencyNumber(item.min_loan ?? item.min_loan_value ?? item.min_loan_display) ?? null;
+            const maxLoan = parseCurrencyNumber(item.max_loan ?? item.max_loan_value ?? item.max_loan_display) ?? null;
+
+            if (user.loanAmount !== null) {
+                if (minLoan !== null && user.loanAmount < minLoan) return false;
+                if (maxLoan !== null && user.loanAmount > maxLoan) return false;
+            }
+
+            // LTV enforcement
+            const prodMaxLtv = parseFloat(String(item.max_ltv ?? '').replace(/[^0-9.\-]/g, ''));
+            if (!isNaN(prodMaxLtv) && user.userLtv !== null) {
+                if (user.userLtv > prodMaxLtv) return false;
+            }
+
+            // Serviceability check (use min_serviceability/min_serviceability_rate for eligibility)
+            if (user.monthlyRental !== null) {
+                const annualRate = parseProductRate(item); // note: parseProductRate still prefers min_serviceability_rate for eligibility
+                const svcMultiplierRaw = item.min_serviceability ?? item.min_serviceability_value ?? item.min_serviceability_display;
+                const svcMultiplier = svcMultiplierRaw !== undefined && svcMultiplierRaw !== null && String(svcMultiplierRaw).trim() !== '' ? parseFloat(String(svcMultiplierRaw).replace(/[^0-9.\-]/g, '')) : null;
+
+                if (annualRate !== null && svcMultiplier !== null && user.loanAmount !== null) {
+                    const monthlyInterest = (user.loanAmount * (annualRate / 100)) / 12;
+                    const requiredIncome = monthlyInterest * svcMultiplier;
+                    if (user.monthlyRental <= requiredIncome) return false;
+                }
+            }
+
+            return true;
+        });
+
+        // ---------- Sorting (unchanged) ----------
+        if (sortValue === 'rate') {
+            results.sort((a, b) => parseFloat(String(a.rates_from || '').replace(/[^\d\.]/g, '') || 0) - parseFloat(String(b.rates_from || '').replace(/[^\d\.]/g, '') || 0));
+        } else if (sortValue === 'annual_cost') {
+            results.sort((a, b) => (a.total_cost || 0) - (b.total_cost || 0));
+        } else if (sortValue === 'ltv') {
+            results.sort((a, b) => parseFloat(b.max_ltv || 0) - parseFloat(a.max_ltv || 0));
+        }
+
+        return results;
+    }
+
+    // Debounced, guarded applyFiltersAndSort with console checks included
+    function applyFiltersAndSort() {
+        // reset pagination whenever filters/sort change
+        resultsOffset = 0;
+
+        if (window._applyFiltersTimer) clearTimeout(window._applyFiltersTimer);
+        window._applyFiltersTimer = setTimeout(() => {
+            if (window._applyingFilters) return;
+            window._applyingFilters = true;
+
+            try {
+                const filters = getActiveFilters();
+                const sortDropdownEl = document.getElementById("btl-sort");
+                const sortValue = sortDropdownEl ? sortDropdownEl.value : "rate"; // default to lowest rate first
+
+                const hasFilters = Object.keys(filters).length > 0 && (
+                    (filters.rate_type && filters.rate_type.length) ||
+                    filters.zero_fee ||
+                    (filters.prop_type && filters.prop_type.length) ||
+                    (filters.product_term && filters.product_term.length)
+                );
+
+                // If no client filters, show server eligibleResults (server list authoritative for eligibility)
+                if (!hasFilters) {
+                    const base = Array.isArray(eligibleResults) ? eligibleResults.slice() : [];
+                    if (sortValue === "rate") {
+                        base.sort((a, b) => parseFloat(String(a.rates_from || '').replace(/[^\d\.]/g, '') || 0) - parseFloat(String(b.rates_from || '').replace(/[^\d\.]/g, '') || 0));
+                    } else if (sortValue === "annual_cost") {
+                        base.sort((a, b) => (a.total_cost || 0) - (b.total_cost || 0));
+                    } else if (sortValue === "ltv") {
+                        base.sort((a, b) => parseFloat(b.max_ltv || 0) - parseFloat(a.max_ltv || 0));
+                    }
+                    console.log('CONSOLE CHECK', { fullCount: fullResults.length, eligibleCount: eligibleResults.length, showingServerEligible: base.length });
+                    renderResultsList(base, base);
+                    return;
+                }
+
+                // Client filters active: filter fullResults (sheet is authoritative for display)
+                let filtered = getFilteredResults(filters, sortValue);
+
+                // Instead of removing sheet rows by intersecting with eligibleResults,
+                // mark server eligibility by matching_id so sheet rows remain visible.
+                if (Array.isArray(eligibleResults) && eligibleResults.length) {
+                    const eligibleIds = new Set(eligibleResults.map(e => String(e.matching_id || '').trim()).filter(Boolean));
+                    filtered.forEach(f => {
+                        f._serverEligible = eligibleIds.has(String(f.matching_id || '').trim());
+                    });
+
+                    // Log a sample of items that are not server-eligible (for debugging)
+                    const dropped = filtered.filter(f => !eligibleIds.has(String(f.matching_id || '').trim()));
+                    if (dropped.length) {
+                        console.log('CONSOLE CHECK: items that are not server-eligible (sample)', dropped.slice(0,8));
+                    }
+                }
+
+                console.log('CONSOLE CHECK', { filters, filteredCount: filtered.length, eligibleCount: (eligibleResults||[]).length, sampleFiltered: filtered.slice(0,8) });
+
+                // Render using the full filtered list; renderResultsList will dedupe by matching_id and slice to pages
+                renderResultsList(filtered, filtered);
+            } finally {
+                window._applyingFilters = false;
+            }
+        }, 120);
+    }
+
+    function wireFilterControls() {
+        document.querySelectorAll(".btl-toggle").forEach(btn => {
+            if (btn.dataset._wired === "1") return;
+            btn.dataset._wired = "1";
+            btn.addEventListener("click", () => {
+                const isActive = btn.classList.toggle("active");
+                btn.style.background = isActive ? "#149580" : "#fff";
+                btn.style.color = isActive ? "white" : "#333";
+                btn.style.borderColor = isActive ? "#149580" : "#ccc";
+                applyFiltersAndSort();
+            });
+        });
+
+        const sortDropdownEl = document.getElementById("btl-sort");
+        if (sortDropdownEl && !sortDropdownEl.dataset._wired) {
+            sortDropdownEl.dataset._wired = "1";
+            sortDropdownEl.addEventListener("change", () => applyFiltersAndSort());
+        }
+
+        const clearFilters = document.getElementById("clear-filters");
+        const filterBtn = document.getElementById("toggle-filters");
+        const filterBox = document.getElementById("filters-container");
+
+        if (clearFilters && !clearFilters.dataset._wired) {
+            clearFilters.dataset._wired = "1";
+            clearFilters.addEventListener("click", () => {
+                document.querySelectorAll(".btl-toggle.active").forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.style.background = "#fff";
+                    btn.style.color = "#333";
+                    btn.style.borderColor = "#ccc";
+                });
+                if (sortDropdownEl) sortDropdownEl.value = "rate";
+                if (filterBox && filterBtn) {
+                    filterBox.style.height = filterBox.scrollHeight + "px";
+                    void filterBox.offsetHeight;
+                    filterBox.style.height = "0px";
+                    filterBox.style.padding = "0 12px";
+                    filterBtn.textContent = "Filters";
+                }
+                applyFiltersAndSort();
+            });
+        }
+
+        if (filterBtn && filterBox && !filterBtn.dataset._wired) {
+            filterBtn.dataset._wired = "1";
+            filterBtn.addEventListener("click", () => {
+                const isClosed = filterBox.style.height === "0px" || !filterBox.style.height;
+                if (isClosed) {
+                    filterBox.style.padding = "12px";
+                    filterBox.style.height = filterBox.scrollHeight + "px";
+                    filterBtn.textContent = "Hide Filters";
+                    setTimeout(() => filterBox.style.height = "auto", 350);
+                } else {
+                    filterBox.style.height = filterBox.scrollHeight + "px";
+                    void filterBox.offsetHeight;
+                    filterBox.style.height = "0px";
+                    filterBox.style.padding = "0 12px";
+                    filterBtn.textContent = "Filters";
+                }
+            });
+        }
+
+        applyFiltersAndSort();
+    }
+
+    /* ---------- Back to results button: create early, show/hide reliably ---------- */
+
+    (function createBackToResultsButton() {
+        if (!document.getElementById('back-to-results-btn')) {
+            const btn = document.createElement('button');
+            btn.id = 'back-to-results-btn';
+            btn.innerHTML = '<span>Back to results</span>';
+            btn.style.zIndex = '1000000';
+            btn.style.display = 'none';
+            document.body.appendChild(btn);
+
+            btn.addEventListener('click', () => {
+                window._funderIntentionalHide = true;
+                setTimeout(() => { window._funderIntentionalHide = false; updateBackToResultsVisibility(); }, 80);
+
+                const progressContainer = document.getElementById('progress-form-container');
+                if (progressContainer) {
+                    try { progressContainer.style.setProperty('display', 'none', 'important'); } catch(e) { progressContainer.style.display = 'none'; }
+                }
+
+                const cf7Els = document.querySelectorAll('.wpcf7, .wpcf7-form, .wpcf7-response-output, .wpcf7-mail-sent-ok');
+                cf7Els.forEach(el => {
+                    try { el.style.setProperty('display', 'none', 'important'); } catch(e) { el.style.display = 'none'; }
+                });
+
+                const resultsContainer = document.getElementById('funder-results');
+                const resultsList = document.getElementById('results-list');
+                if (resultsContainer) {
+                    resultsContainer.style.display = 'block';
+                }
+                const target = resultsList || resultsContainer;
+                if (target) {
+                    try {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        const firstCard = resultsContainer ? resultsContainer.querySelector('.result-card, .result-card.new, #results-list > *') : null;
+                        if (firstCard && typeof firstCard.focus === 'function') {
+                            try { firstCard.setAttribute('tabindex', '-1'); firstCard.focus(); } catch (e) {}
+                        }
+                    } catch (e) {
+                        window.scrollTo({ top: target.getBoundingClientRect ? (window.scrollY + target.getBoundingClientRect().top) : 0, behavior: 'smooth' });
+                    }
+                }
+
+                btn.style.display = 'none';
+            });
+        }
+    })();
+
+    // Create floating compare button (only one)
+    (function createCompareButton() {
+        if (!document.getElementById('compare-btn')) {
+            const cb = document.createElement('button');
+            cb.id = 'compare-btn';
+            cb.innerText = 'Compare';
+            cb.style.display = 'none';
+            document.body.appendChild(cb);
+            cb.addEventListener('click', () => {
+                openCompareCard();
+            });
+        }
+    })();
+
+    // ---------- CF7-tied visibility: show button only when CF7 form is visible ----------
+    function isCF7Visible() {
+        try {
+            const forms = document.querySelectorAll('.wpcf7, .wpcf7-form, form.wpcf7-form');
+            for (const el of forms) {
+                if (!el) continue;
+                const cs = window.getComputedStyle(el);
+                if (!cs) continue;
+                const visibleByStyle = cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity || '1') > 0;
+                const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                const hasSize = rect ? (rect.width > 0 && rect.height > 0) : false;
+                const inDOM = document.body.contains(el);
+                if (inDOM && visibleByStyle && hasSize) return true;
+            }
+        } catch (e) {
+            return !!document.querySelector('.wpcf7, .wpcf7-form, form.wpcf7-form');
+        }
+        return false;
+    }
+
+    function isProgressVisible() {
+        const progress = document.getElementById('progress-form-container');
+        if (!progress) return false;
+        try {
+            const cs = window.getComputedStyle(progress);
+            const visibleByStyle = cs && cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity || '1') > 0;
+            const rect = progress.getBoundingClientRect ? progress.getBoundingClientRect() : null;
+            const hasSize = rect ? (rect.width > 0 && rect.height > 0) : false;
+            return (progress.offsetParent !== null) || visibleByStyle || hasSize;
+        } catch (e) {
+            return progress.offsetParent !== null;
+        }
+    }
+
+    // Poll helper used when showing progress to catch CF7 quickly
+    function pollForCF7AndShowButton({ interval = 30, timeout = 900 } = {}) {
+        const btn = document.getElementById('back-to-results-btn');
+        if (!btn) return;
+        const start = Date.now();
+
+        // immediate quick check
+        if (isCF7Visible() || isProgressVisible()) {
+            btn.style.display = 'block';
+            return;
+        }
+
+        const t = setInterval(() => {
+            if (window._funderIntentionalHide) {
+                // if intentionally hidden, don't show yet
+                if (Date.now() - start > timeout) clearInterval(t);
+                return;
+            }
+            if (isCF7Visible() || isProgressVisible()) {
+                btn.style.display = 'block';
+                clearInterval(t);
+                return;
+            }
+            if (Date.now() - start > timeout) {
+                clearInterval(t);
+                // fallback: if progress container is visible, show button anyway
+                if (isProgressVisible()) btn.style.display = 'block';
+            }
+        }, interval);
+    }
+
+    function updateBackToResultsVisibility() {
+        const btn = document.getElementById('back-to-results-btn');
+        if (!btn) return;
+
+        // Respect intentional hides from your flow
+        if (window._funderIntentionalHide) {
+            btn.style.display = 'none';
+            return;
+        }
+
+        // Use rAF for the fastest reliable paint-aware check
+        requestAnimationFrame(() => {
+            if (isCF7Visible() || isProgressVisible()) {
+                // show immediately (no animation delay)
+                btn.style.display = 'block';
+            } else {
+                btn.style.display = 'none';
+            }
+        });
+    }
+
+    // Compare UI helpers
+    function updateCompareUI() {
+        const set = window._funder_compare_set || new Set();
+        const count = set.size;
+        const compareBtn = document.getElementById('compare-btn');
+        if (!compareBtn) return;
+        if (count >= 2) {
+            compareBtn.style.display = 'block';
+            compareBtn.innerText = `Compare (${count})`;
+        } else {
+            compareBtn.style.display = 'none';
+        }
+
+        // Ensure checkboxes reflect state (useful after re-render)
+        document.querySelectorAll('.compare-select').forEach(cb => {
+            const mid = String(cb.dataset.matchingId || '').trim();
+            if (!mid) return;
+            cb.checked = set.has(mid);
+        });
+    }
+
+    function getResultByMatchingId(mid) {
+        if (!mid) return null;
+        const all = Array.isArray(allResults) ? allResults.concat(fullResults || []) : (fullResults || []);
+        for (const r of all) {
+            const id = String(r.matching_id || r.matching_id_value || r.id || r.product_id || r.lending_product || '').trim();
+            if (id === mid) return r;
+        }
+        // fallback: search fullResults
+        for (const r of (fullResults || [])) {
+            const id = String(r.matching_id || r.matching_id_value || r.id || r.product_id || r.lending_product || '').trim();
+            if (id === mid) return r;
+        }
+        return null;
+    }
+
+    // Helper to detect BTL product (flexible checks)
+    function isBTLProduct(item) {
+        if (!item) return false;
+        const keys = [
+            item.product_type, item.product_category, item.product_group,
+            item.lending_product, item.caption, item.product_name
+        ];
+        for (const k of keys) {
+            if (!k) continue;
+            const s = String(k).toLowerCase();
+            if (s.includes('btl') || s.includes('buy to let') || s.includes('buy-to-let')) return true;
+        }
+        return false;
+    }
+
+    // Helper to build borrower string (supports borrower_type and accepts_* flags)
+    function buildBorrowerString(item) {
+        const parts = [];
+
+        // If borrower_type field exists and contains values like 'Ltd' or 'Individual', use it
+        if (item.borrower_type) {
+            const bt = String(item.borrower_type).toLowerCase();
+            if (bt.includes('ltd') || bt.includes('limited') || bt.includes('company')) {
+                if (!parts.includes('Ltd')) parts.push('Ltd');
+            }
+            if (bt.includes('individual') || bt.includes('sole') || bt.includes('personal')) {
+                if (!parts.includes('Individual')) parts.push('Individual');
+            }
+        }
+
+        // Also check explicit accepts_ltd / accepts_individual flags
+        if (String(item.accepts_ltd || item.accepts_ltd_companies || item.accepts_ltd_company || '').toLowerCase() === 'yes') {
+            if (!parts.includes('Ltd')) parts.push('Ltd');
+        }
+        if (String(item.accepts_individual || item.accepts_individuals || '').toLowerCase() === 'yes') {
+            if (!parts.includes('Individual')) parts.push('Individual');
+        }
+
+        // homeowner_required / home owner flag
+        if (String(item.homeowner_required || item.accepts_homeowner || item.requires_homeowner || '').toLowerCase() === 'yes') {
+            if (!parts.includes('Homeowner')) parts.push('Homeowner');
+        }
+
+        return parts.length ? parts.join(', ') : '—';
+    }
+
+    // Helper to build property type string (always include Standard as default, append others if present)
+    function buildPropertyTypeString(item) {
+        const parts = ['Standard'];
+        if (String(item.accepts_hmo || '').toLowerCase() === 'yes') parts.push('HMO');
+        if (String(item.accepts_mufb || '').toLowerCase() === 'yes') parts.push('MUFB');
+        if (String(item.accepts_hol || item.accepts_holiday || '').toLowerCase() === 'yes') parts.push('Holiday');
+        if (String(item.accepts_nonstandard || item.accepts_non_standard || '').toLowerCase() === 'yes') parts.push('Non-standard');
+        return parts.join(', ');
+    }
+
+    // Helper to build age string
+    function buildAgeString(item) {
+        const minAge = item.min_age ?? item.min_age_value ?? item.min_age_display;
+        const maxAge = item.max_age ?? item.max_age_value ?? item.max_age_display;
+        if (minAge || maxAge) {
+            const min = minAge ? String(minAge).trim() : '';
+            const max = maxAge ? String(maxAge).trim() : '';
+            if (min && max) return `${min} - ${max}`;
+            if (min) return `${min}+`;
+            if (max) return `Up to ${max}`;
+        }
+        return '—';
+    }
+
+    // Helper to get min income (label will be Min Applicant Income)
+    function getMinIncome(item) {
+        return item.min_income || item.min_income_display || item.minimum_income || '—';
+    }
+
+    // Helper to check accepts first time buyers (sheet header: accepts_first_time)
+    // Note: this refers to first time landlords per your sheet mapping
+    function acceptsFirstTimeBuyers(item) {
+        const v = String(item.accepts_first_time || item.accepts_first_time_buyer || item.accepts_ftb || item.accepts_first_time_buyers || '').toLowerCase();
+        if (v === 'yes' || v === 'true' || v === '1') return 'Yes';
+        if (v === 'no' || v === 'false' || v === '0') return 'No';
+        return '—';
+    }
+
+    // Observe CF7 presence but do not move on initial load. Moving happens on demand.
+    (function observeAndMoveCF7() {
+        const progress = document.getElementById('progress-form-container');
+        if (!progress) return;
+
+        const findCF7Candidates = (node) => {
+            const candidates = [];
+            if (!node) return candidates;
+            if (node.nodeType === 1) {
+                if (node.matches && (node.matches('.wpcf7') || node.matches('.wpcf7-form') || (node.tagName && node.tagName.toLowerCase()==='form' && node.classList.contains('wpcf7-form')))) {
+                    candidates.push(node);
+                }
+                const found = node.querySelectorAll ? node.querySelectorAll('.wpcf7, .wpcf7-form, form.wpcf7-form, form') : [];
+                Array.prototype.forEach.call(found, f => candidates.push(f));
+            }
+            return candidates;
+        };
+
+        // Do NOT move CF7 on initial load. Only observe and mark detection.
+        try {
+            const bodyObserver = new MutationObserver((mutations) => {
+                for (const m of mutations) {
+                    if (m.addedNodes && m.addedNodes.length) {
+                        m.addedNodes.forEach(n => {
+                            const cands = findCF7Candidates(n);
+                            if (cands.length) {
+                                // CF7 markup appeared somewhere — mark detection for on-demand move
+                                window._funder_cf7_detected = true;
+                            }
+                        });
+                    }
+                    if (m.type === 'attributes' && (m.attributeName === 'style' || m.attributeName === 'class')) {
+                        const cands = findCF7Candidates(m.target);
+                        if (cands.length) window._funder_cf7_detected = true;
+                    }
+                }
+            });
+            bodyObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+        } catch (e) {
+            // fallback: set a flag so ensureCF7ReadyInProgress will still attempt a move when needed
+            window._funder_cf7_detected = true;
+        }
+    })();
+
+    // Move CF7 into progress container and init it on demand (do not run automatically on every mutation)
+    function moveCF7IntoProgressContainerNow() {
+        const progress = document.getElementById('progress-form-container');
+        if (!progress) return false;
+        let movedAny = false;
+
+        // Find any CF7 form nodes that are not already inside the progress container
+        const candidates = document.querySelectorAll('.wpcf7, .wpcf7-form, form.wpcf7-form, form');
+        candidates.forEach(f => {
+            if (!f || progress.contains(f)) return;
+            try {
+                // Move the node (do not clone)
+                f.parentNode && progress.appendChild(f);
+                movedAny = true;
+
+                // Re-init CF7 on the moved form if available
+                try {
+                    if (window.wpcf7 && typeof wpcf7.initForm === 'function') {
+                        try { wpcf7.initForm(f); } catch (e) { console.warn('wpcf7.initForm failed', e); }
+                    } else {
+                        // fallback: dispatch the CF7 init event
+                        try { document.dispatchEvent(new Event('wpcf7init')); } catch (e) {}
+                    }
+                } catch (e) {
+                    console.warn('CF7 init attempt failed', e);
+                }
+            } catch (e) {
+                console.warn('Failed to move CF7 node into progress container', e);
+            }
+        });
+
+        return movedAny;
+    }
+
+    // ---------- REPLACED: ensureCF7ReadyInProgress (improved re-init + unhide logic) ----------
+    function ensureCF7ReadyInProgress() {
+        const progress = document.getElementById('progress-form-container');
+        if (!progress) return;
+
+        // Helper to make a node visible and remove hiding attributes/styles
+        function unhideNode(node) {
+            try {
+                if (!node || node.nodeType !== 1) return;
+                // Remove inline display:none and aria-hidden
+                if (node.style && node.style.display && node.style.display.toLowerCase() === 'none') {
+                    node.style.removeProperty('display');
+                }
+                if (node.hasAttribute && node.hasAttribute('aria-hidden')) node.removeAttribute('aria-hidden');
+                // Ensure visibility
+                try { node.style.visibility = node.style.visibility || 'visible'; } catch (e) {}
+            } catch (e) {}
+        }
+
+        // Try to find an existing CF7 form already inside the progress container
+        const existingForm = progress.querySelector('form.wpcf7-form, .wpcf7, form');
+        if (existingForm) {
+            // Ensure it's visible and re-init
+            unhideNode(existingForm);
+            unhideNode(existingForm.parentNode);
+            try {
+                if (window.wpcf7 && typeof wpcf7.initForm === 'function') {
+                    try { wpcf7.initForm(existingForm); } catch (e) { console.warn('wpcf7.initForm failed', e); }
+                } else {
+                    try { document.dispatchEvent(new Event('wpcf7init')); } catch (e) {}
+                }
+                try { document.dispatchEvent(new Event('wpcf7open')); } catch (e) {}
+            } catch (e) {
+                console.warn('CF7 re-init attempt error', e);
+            }
+            return;
+        }
+
+        // Otherwise move any CF7 nodes into progress and init them
+        const moved = (function moveAnyCF7() {
+            let movedAny = false;
+            const candidates = document.querySelectorAll('.wpcf7, .wpcf7-form, form.wpcf7-form, form');
+            candidates.forEach(f => {
+                if (!f || progress.contains(f)) return;
+                try {
+                    // Move node into progress container
+                    f.parentNode && progress.appendChild(f);
+                    movedAny = true;
+                    // Unhide moved node and its parents
+                    unhideNode(f);
+                    unhideNode(f.parentNode);
+                } catch (e) {
+                    console.warn('Failed to move CF7 node into progress container', e);
+                }
+            });
+            return movedAny;
+        })();
+
+        // After moving, attempt to init and ensure visible. Use a short retry loop to handle timing.
+        const tryInit = () => {
+            const form = progress.querySelector('form.wpcf7-form, .wpcf7, form');
+            if (!form) return false;
+            try {
+                // Remove any inline hiding on the form and its wrapper chain
+                let node = form;
+                for (let i = 0; i < 6 && node; i++, node = node.parentNode) {
+                    unhideNode(node);
+                }
+
+                // Re-init CF7 if available
+                if (window.wpcf7 && typeof wpcf7.initForm === 'function') {
+                    try { wpcf7.initForm(form); } catch (e) { console.warn('wpcf7.initForm failed', e); }
+                } else {
+                    try { document.dispatchEvent(new Event('wpcf7init')); } catch (e) {}
+                }
+
+                // Dispatch open event so any listeners update visibility
+                try { document.dispatchEvent(new Event('wpcf7open')); } catch (e) {}
+
+                // Ensure the form is focusable and visible
+                try { form.setAttribute('tabindex', '-1'); form.focus(); } catch (e) {}
+
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        // Try immediately, then retry a few times with small delays to handle race conditions
+        if (tryInit()) return;
+        let attempts = 0;
+        const maxAttempts = 8;
+        const interval = setInterval(() => {
+            attempts++;
+            if (tryInit() || attempts >= maxAttempts) {
+                clearInterval(interval);
+            }
+        }, 80);
+    }
+
+    // ---------- REPLACED: showProgressForProduct (ensures CF7 unhide + re-init each open) ----------
+    function showProgressForProduct(matchingId) {
+        // store selected product globally and in a hidden input for CF7
+        window._funder_selected_product = matchingId || null;
+        try { sessionStorage.setItem('funder_selected_product', matchingId || ''); } catch(e) {}
+
+        // ensure progress container visible and hide results to avoid CF7 appearing above results
+        const progressContainer = document.getElementById("progress-form-container");
+        const resultsContainer = document.getElementById("funder-results");
+        if (resultsContainer) resultsContainer.style.display = 'none';
+        if (progressContainer) {
+            // restore any elements previously hidden by our script
+            document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+                try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+                try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+            });
+
+            try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
+        }
+
+        // ensure there's a hidden input CF7 can read (name portal_selected_product)
+        // prefer to place it inside the CF7 form if present; otherwise create at body level
+        setTimeout(() => {
+            // Move/init CF7 into progress container on demand and ensure visible
+            try { ensureCF7ReadyInProgress && ensureCF7ReadyInProgress(); } catch(e) {}
+
+            let cf7Form = document.querySelector('#progress-form-container form.wpcf7-form, #progress-form-container .wpcf7-form, #progress-form-container form');
+            if (!cf7Form) {
+                // try to find any CF7 form anywhere and move it (ensureCF7ReadyInProgress should have moved it)
+                cf7Form = document.querySelector('#progress-form-container form, #progress-form-container .wpcf7-form');
+            }
+
+            // If the form exists, ensure it's visible and set the hidden input
+            let cf7Hidden = null;
+            if (cf7Form) {
+                // Remove inline hiding on the form and its parents again to be safe
+                try {
+                    let node = cf7Form;
+                    for (let i = 0; i < 6 && node; i++, node = node.parentNode) {
+                        if (node && node.style && node.style.display && node.style.display.toLowerCase() === 'none') {
+                            node.style.removeProperty('display');
+                        }
+                        if (node && node.hasAttribute && node.hasAttribute('aria-hidden')) node.removeAttribute('aria-hidden');
+                    }
+                } catch (e) {}
+
+                cf7Hidden = cf7Form.querySelector('input[name="portal_selected_product"]');
+                if (!cf7Hidden) {
+                    cf7Hidden = document.createElement('input');
+                    cf7Hidden.type = 'hidden';
+                    cf7Hidden.name = 'portal_selected_product';
+                    cf7Form.appendChild(cf7Hidden);
+                }
+            } else {
+                cf7Hidden = document.querySelector('input[name="portal_selected_product"]');
+                if (!cf7Hidden) {
+                    cf7Hidden = document.createElement('input');
+                    cf7Hidden.type = 'hidden';
+                    cf7Hidden.name = 'portal_selected_product';
+                    cf7Hidden.style.display = 'none';
+                    document.body.appendChild(cf7Hidden);
+                }
+            }
+            if (cf7Hidden) cf7Hidden.value = matchingId || '';
+
+            // Re-init CF7 and dispatch open event to ensure it becomes visible
+            try {
+                if (cf7Form && window.wpcf7 && typeof wpcf7.initForm === 'function') {
+                    try { wpcf7.initForm(cf7Form); } catch (e) { console.warn('wpcf7.initForm failed', e); }
+                } else {
+                    try { document.dispatchEvent(new Event('wpcf7init')); } catch (e) {}
+                }
+                try { document.dispatchEvent(new Event('wpcf7open')); } catch (e) {}
+            } catch (e) {}
+
+            // store a short-lived log key as before
+            fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ log: "selected_product:" + (matchingId || '') })
+            })
+            .then(res => res.json())
+            .then(resp => {
+                const cf7HiddenKey = document.querySelector('input[name="portal_log_key"]');
+                if (cf7HiddenKey) cf7HiddenKey.value = resp.key || '';
+            })
+            .catch(() => {});
+        }, 40);
+
+        // small intentional hide so observers don't fight the transition
+        window._funderIntentionalHide = true;
+        setTimeout(() => { window._funderIntentionalHide = false; updateBackToResultsVisibility(); }, 120);
+
+        // aggressively poll for CF7 and show compare/back buttons as needed
+        pollForCF7AndShowButton({ interval: 30, timeout: 900 });
+        updateBackToResultsVisibility();
+    }
+
+    // Build a table-style compare card with per-product Apply buttons
+    function openCompareCard() {
+        const set = window._funder_compare_set || new Set();
+        if (!set || set.size < 2) return;
+
+        // Build overlay if not present
+        let overlay = document.getElementById('compare-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'compare-overlay';
+            overlay.style.display = 'none';
+            document.body.appendChild(overlay);
+        }
+
+        // Keep only close-x (top-right)
+        overlay.innerHTML = `
+            <div id="compare-card" role="dialog" aria-modal="true">
+                <button class="close-x" aria-label="Close compare">✕</button>
+                <h3 style="margin:0; font-size:18px; color:#149580;">Compare selected options</h3>
+                <div id="compare-content"></div>
+            </div>
+        `;
+
+        overlay.querySelector('.close-x').addEventListener('click', () => closeCompareCard(true));
+
+        const content = document.getElementById('compare-content');
+        content.innerHTML = '';
+
+        const items = Array.from(set).map(mid => getResultByMatchingId(mid)).filter(Boolean);
+        if (!items.length) {
+            content.innerHTML = '<div style="padding:12px;">No data available for selected items.</div>';
+            overlay.style.display = 'flex';
+            // hide results while overlay is visible
+            const resultsContainer = document.getElementById('funder-results');
+            if (resultsContainer) resultsContainer.style.display = 'none';
+            return;
+        }
+
+        // Label columns Option 1, Option 2, Option 3 (no subtitle header)
+        const table = document.createElement('table');
+        table.className = 'compare-table';
+
+        // Header row
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        const emptyTh = document.createElement('th');
+        emptyTh.innerText = '';
+        headerRow.appendChild(emptyTh);
+        items.forEach((it, idx) => {
+            const optionLabel = `Option ${idx + 1}`;
+            const th = document.createElement('th');
+            th.innerHTML = `<div class="compare-product-title">${optionLabel}</div>`;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        // For BTL we show the requested set of rows; for non-BTL we show a generic set
+        const isAnyBTL = items.some(it => isBTLProduct(it));
+
+        // Build rows array depending on product type (BTL fields as requested)
+        const rows = isAnyBTL ? [
+            { key: 'product', label: 'Product' },
+            { key: 'amount_required', label: 'Amount required' },
+            { key: 'monthly_interest', label: 'Monthly interest (est.)' },
+            { key: 'rates_from', label: 'Rates from' },
+            { key: 'max_ltv', label: 'Max LTV' },
+            { key: 'max_term', label: 'Max Term' },
+            { key: 'fees', label: 'Fees' },
+            { key: 'age', label: 'Age' },
+            { key: 'borrower', label: 'Borrower' },
+            { key: 'accepts_ftb', label: 'Accepts first time buyers' },
+            { key: 'property_type', label: 'Property type' },
+            { key: 'min_income', label: 'Min Applicant Income' },
+            { key: 'description', label: 'Description' },
+            { key: 'apply', label: '' }
+        ] : [
+            { key: 'product', label: 'Product' },
+            { key: 'amount_required', label: 'Amount required' },
+            { key: 'monthly_interest', label: 'Monthly interest (est.)' },
+            { key: 'rates_from', label: 'Rates from' },
+            { key: 'max_ltv', label: 'Max LTV' },
+            { key: 'max_term', label: 'Max Term' },
+            { key: 'fees', label: 'Fees' },
+            { key: 'description', label: 'Description' },
+            { key: 'apply', label: '' }
+        ];
+
+        const tbody = document.createElement('tbody');
+
+        // compute user loan once for monthly interest calculation
+        const userLoan = computeUserLoanAndLtv();
+
+        rows.forEach(rowDef => {
+            const tr = document.createElement('tr');
+            const labelTd = document.createElement('th');
+            labelTd.innerText = rowDef.label;
+            tr.appendChild(labelTd);
+
+            items.forEach(it => {
+                const td = document.createElement('td');
+                if (rowDef.key === 'product') {
+                    td.innerHTML = `<div style="font-weight:700; color:#149580;">${it.lending_product || it.product_name || it.caption || 'Option'}</div>`;
+                } else if (rowDef.key === 'amount_required') {
+                    // Amount required uses the same loan calculation as computeUserLoanAndLtv
+                    const loan = userLoan.loanAmount;
+                    td.innerText = loan !== null ? formatCurrencyZeroDecimals(loan) : '—';
+                } else if (rowDef.key === 'monthly_interest') {
+                    // interest-only monthly estimate: loanAmount * (rates_from/100) / 12
+                    const loan = userLoan.loanAmount;
+                    // numeric rate must come from rates_from specifically (user requested)
+                    const rate = numericRateFromRatesFrom(it);
+                    if (loan !== null && rate !== null && !isNaN(loan) && !isNaN(rate)) {
+                        const monthly = (loan * (rate / 100)) / 12;
+                        td.innerText = formatCurrency(monthly);
+                    } else {
+                        td.innerText = '—';
+                    }
+                } else if (rowDef.key === 'rates_from') {
+                    td.innerText = formatRateDisplay(it.rates_from || it.rates_from_display || it.rates_from_value || '');
+                } else if (rowDef.key === 'max_ltv') {
+                    td.innerText = it.max_ltv ? (it.max_ltv + '%') : '—';
+                } else if (rowDef.key === 'max_term') {
+                    td.innerText = it.max_term ? (it.max_term + ' years') : '—';
+                } else if (rowDef.key === 'fees') {
+                    td.innerText = it.product_fee || it.fee || '—';
+                } else if (rowDef.key === 'age') {
+                    td.innerText = buildAgeString(it);
+                } else if (rowDef.key === 'borrower') {
+                    td.innerText = buildBorrowerString(it);
+                } else if (rowDef.key === 'accepts_ftb') {
+                    td.innerText = acceptsFirstTimeBuyers(it);
+                } else if (rowDef.key === 'property_type') {
+                    td.innerText = buildPropertyTypeString(it);
+                } else if (rowDef.key === 'min_income') {
+                    td.innerText = getMinIncome(it);
+                } else if (rowDef.key === 'description') {
+                    td.innerText = it.description ? (it.description.substring(0,300) + (it.description.length>300?'…':'')) : '—';
+                } else if (rowDef.key === 'apply') {
+                    const mid = String(it.matching_id || it.matching_id_value || it.id || it.product_id || it.lending_product || '').trim();
+                    const btn = document.createElement('button');
+                    btn.className = 'compare-product-apply';
+                    btn.innerText = 'Apply';
+                    btn.dataset.matchingId = mid;
+                    btn.addEventListener('click', () => {
+                        // set selected product and open progress form for that product
+                        showProgressForProduct(mid);
+                        // close overlay but keep results hidden because we're opening CF7
+                        closeCompareCard(false);
+                    });
+                    td.appendChild(btn);
+                } else {
+                    td.innerText = '—';
+                }
+                tr.appendChild(td);
+            });
+
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(tbody);
+        content.appendChild(table);
+
+        overlay.style.display = 'flex';
+
+        // hide results while overlay is visible
+        const resultsContainer = document.getElementById('funder-results');
+        if (resultsContainer) resultsContainer.style.display = 'none';
+
+        const card = document.getElementById('compare-card');
+        if (card) {
+            try { card.setAttribute('tabindex', '-1'); card.focus(); } catch (e) {}
+        }
+    }
+
+    // closeCompareCard(restoreResults = true)
+    // If restoreResults is false, we keep results hidden (useful when immediately opening CF7)
+    function closeCompareCard(restoreResults = true) {
+        const overlay = document.getElementById('compare-overlay');
+        if (overlay) overlay.style.display = 'none';
+        if (restoreResults) {
+            const resultsContainer = document.getElementById('funder-results');
+            if (resultsContainer) resultsContainer.style.display = 'block';
+            // re-render to ensure handlers and UI are consistent
+            applyFiltersAndSort();
+        }
+        updateBackToResultsVisibility();
+        updateCompareUI();
+    }
+
+    // Listen for Contact Form 7 events so visibility updates when CF7 changes state
+    ['wpcf7submit', 'wpcf7mailsent', 'wpcf7invalid', 'wpcf7spam', 'wpcf7mailfailed', 'wpcf7open'].forEach(evt => {
+        try {
+            document.addEventListener(evt, () => {
+                setTimeout(updateBackToResultsVisibility, 40);
+            }, false);
+        } catch (e) {}
+    });
+
+    // Observe body for CF7 insertions/visibility changes (CF7 often injects markup)
+    (function observeCF7AndBody() {
+        try {
+            const bodyObserver = new MutationObserver((mutations) => {
+                // small debounce
+                if (window._cf7VisibilityDebounce) clearTimeout(window._cf7VisibilityDebounce);
+                window._cf7VisibilityDebounce = setTimeout(() => {
+                    // If CF7 appears anywhere, update visibility flags
+                    updateBackToResultsVisibility();
+                    updateCompareUI();
+                }, 60);
+            });
+            bodyObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+
+            // Also call once at startup
+            setTimeout(() => { updateBackToResultsVisibility(); updateCompareUI(); }, 120);
+        } catch (e) {
+            setInterval(() => { updateBackToResultsVisibility(); updateCompareUI(); }, 800);
+        }
+    })();
+
+    /* ---------- Ensure compare state resets on navigation/reload and on explicit start-over ---------- */
+
+    // Clear compare selections when the user navigates away or reloads the page
+    window.addEventListener('beforeunload', function() {
+        try { sessionStorage.removeItem('funder_compare_ids'); } catch(e) {}
+        try { sessionStorage.removeItem('funder_selected_product'); } catch(e) {}
+    });
+
+    // Also clear compare UI if the page is hidden (single-page navigations)
+    window.addEventListener('pagehide', function() {
+        try { sessionStorage.removeItem('funder_compare_ids'); } catch(e) {}
+        try { sessionStorage.removeItem('funder_selected_product'); } catch(e) {}
+    });
+
+    // On initial load ensure compare button reflects persisted state (or cleared state)
+    try {
+        // Always clear persisted compare state on a fresh load to avoid stale UI
+        try { sessionStorage.removeItem('funder_compare_ids'); } catch (e) {}
+        window._funder_compare_set = new Set();
+        updateCompareUI();
+    } catch (e) {
+        window._funder_compare_set = new Set();
+        updateCompareUI();
+    }
+
+    /* ---------- Event delegation for results-list (robust across re-renders) ----------
+       NOTE: previous issue was delegation attached to #results-list before it existed.
+       Use document-level delegation so dynamically rendered items are handled reliably.
+    */
+    (function delegateResultsListHandlers() {
+        // Use document-level delegation to catch clicks/changes on dynamically inserted elements
+        document.body.addEventListener('click', (e) => {
+            // Apply buttons (cards)
+            const applyBtn = e.target.closest('.apply-btn');
+            if (applyBtn) {
+                const mid = String(applyBtn.dataset.matchingId || '').trim();
+                if (mid) {
+                    showProgressForProduct(mid);
+                }
+                return;
+            }
+
+            // Compare product apply buttons inside compare overlay (these have their own listeners, but keep fallback)
+            const compareApply = e.target.closest('.compare-product-apply');
+            if (compareApply) {
+                const mid = String(compareApply.dataset.matchingId || '').trim();
+                if (mid) {
+                    showProgressForProduct(mid);
+                    closeCompareCard(false);
+                }
+                return;
+            }
+        }, true);
+
+        // Use change event delegation for checkboxes (works for keyboard and programmatic changes)
+        document.body.addEventListener('change', (e) => {
+            const cb = e.target.closest('.compare-select');
+            if (!cb) return;
+            const mid = String(cb.dataset.matchingId || '').trim();
+            if (!mid) return;
+
+            const set = window._funder_compare_set || new Set();
+            if (cb.checked) {
+                if (set.size >= 3) {
+                    // revert and notify
+                    cb.checked = false;
+                    const prev = document.getElementById('compare-limit-toast');
+                    if (!prev) {
+                        const t = document.createElement('div');
+                        t.id = 'compare-limit-toast';
+                        t.style.position = 'fixed';
+                        t.style.bottom = '86px';
+                        t.style.left = '50%';
+                        t.style.transform = 'translateX(-50%)';
+                        t.style.background = '#333';
+                        t.style.color = '#fff';
+                        t.style.padding = '8px 12px';
+                        t.style.borderRadius = '6px';
+                        t.style.zIndex = 1000001;
+                        t.style.fontSize = '13px';
+                        t.innerText = 'You can compare up to 3 options';
+                        document.body.appendChild(t);
+                        setTimeout(() => { try { t.remove(); } catch(e) {} }, 1400);
+                    }
+                    return;
+                }
+                set.add(mid);
+            } else {
+                set.delete(mid);
+            }
+            window._funder_compare_set = set;
+            try { sessionStorage.setItem('funder_compare_ids', JSON.stringify(Array.from(set))); } catch (e) {}
+            updateCompareUI();
+        }, true);
+
+        // Also handle clicks on the checkbox label area (in case some browsers don't fire change immediately)
+        document.body.addEventListener('click', (e) => {
+            const labelCb = e.target.closest('.compare-checkbox');
+            if (!labelCb) return;
+            const input = labelCb.querySelector('.compare-select');
+            if (!input) return;
+            // small timeout to allow native toggle then sync state
+            setTimeout(() => {
+                const ev = new Event('change', { bubbles: true });
+                input.dispatchEvent(ev);
+            }, 8);
+        }, true);
+    })();
+
+    /* ---------- End back-to-results + compare logic ---------- */
+
+    if (typeof forceTop === "function") {
+        // no-op; displayResults will call forceTop when appropriate
+    }
+
+}); // DOMContentLoaded
+</script>
+
+<?php
+    return ob_get_clean();
+}
+add_shortcode('funder_script', 'funder_script_shortcode');
