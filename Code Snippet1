@@ -11,7 +11,7 @@ function funder_script_shortcode() {
 <!-- COMING SOON PLACEHOLDER -->
 <div id="coming-soon" style="display:none; padding:20px; border:1px solid #ccc; margin-top:20px;">
     <h3>We're building this journey</h3>
-    <p>This finance option will be available soon. In the meantime, feel free to contact us directly.</p>
+    <p>This finance option will be available soon. In the meantime, feel free to contact us directly t explore your options.</p>
 
     <button id="no-results-apply-btn"
         style="
@@ -2113,7 +2113,7 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         updateBackToResultsVisibility();
     }
 
-    // Build a table-style compare card with per-product Apply buttons
+ // Build a table-style compare card with per-product Apply buttons
 function openCompareCard() {
     const set = window._funder_compare_set || new Set();
     if (!set || set.size < 2) return;
@@ -2127,7 +2127,7 @@ function openCompareCard() {
         document.body.appendChild(overlay);
     }
 
-    // Keep only close-x (top-right)
+    // Build modal content
     overlay.innerHTML = `
         <div id="compare-card" role="dialog" aria-modal="true">
             <button class="close-x" aria-label="Close compare">✕</button>
@@ -2135,6 +2135,24 @@ function openCompareCard() {
             <div id="compare-content"></div>
         </div>
     `;
+
+    // Show overlay
+    overlay.style.display = "block";
+
+    // 🔒 Lock background scroll
+    document.body.style.overflow = "hidden";
+
+    // Close handler
+    const closeBtn = overlay.querySelector(".close-x");
+    if (closeBtn) {
+        closeBtn.addEventListener("click", () => {
+            overlay.style.display = "none";
+
+            // 🔓 Restore scroll
+            document.body.style.overflow = "";
+        });
+    }
+
 
     overlay.querySelector('.close-x').addEventListener('click', () => closeCompareCard(true));
 
