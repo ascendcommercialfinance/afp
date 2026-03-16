@@ -792,17 +792,7 @@ const userLoan = computeUserLoanAndLtv();
 const loanAmount = userLoan.loanAmount;
 const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
-html += `
-    <div id="results-summary" style="
-        font-size:14px;
-        color:#555;
-        font-weight:500;
-        margin-bottom:14px;
-        text-align: center;
-    ">
-        Showing ${totalResults} results for ${loanDisplay ? `'${loanDisplay}'` : "your criteria"}
-    </div>
-`;
+
 
         html += `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
@@ -816,7 +806,7 @@ html += `
         `;
 
         html += `
-            <div id="filters-container" style="height:0; overflow:hidden; transition:height 0.35s ease; padding:0 12px; border:1px solid #ddd; border-radius:8px; background:#f7f7f7; margin-bottom:20px;">
+            <div id="filters-container" style="height:0; overflow:hidden; transition:height 0.35s ease; padding:0 12px; border:1px solid #ddd; border-radius:8px; background:#f7f7f7; margin-bottom:10px;">
                 <div style="margin-bottom:12px;">
                     <div style="font-size:13px; font-weight:600; margin-bottom:6px; color:#444;">Rate Type</div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -854,6 +844,18 @@ html += `
                 <div style="margin-top:10px; text-align:right;">
                     <span id="clear-filters" style="font-size:12px; color:#149580; cursor:pointer; font-weight:500;">Clear filters</span>
                 </div>
+            </div>
+        `;
+
+        html += `
+            <div id="results-summary" style="
+                font-size:14px;
+                color:#555;
+                font-weight:500;
+                margin-bottom:10px;
+                text-align: center;
+            ">
+                Showing results for ${loanDisplay ? `${loanDisplay} lending` : "your criteria"}
             </div>
         `;
 
@@ -947,12 +949,12 @@ html += `
 
     const cardStyle = `
         border:1px solid #e5e5e5;
-        border-radius:10px;
+        border-radius:8px;
         padding:20px;
         margin-bottom:20px;
         background:white;
         box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05), inset 0 2px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 3px rgba(0, 0, 0, 0.05);
-        margin-top: 14px;
+        margin-top: 10px!important;
         position: relative;
     `;
 
