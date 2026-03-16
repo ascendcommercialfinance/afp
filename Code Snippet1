@@ -786,14 +786,10 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-       // Use the filtered results array, not allResults
-const totalResults = results.length;
+const totalResults = allResults.length;
 
-// Get the user's loan amount
 const userLoan = computeUserLoanAndLtv();
 const loanAmount = userLoan.loanAmount;
-
-// Format the loan amount nicely (e.g., £150,000)
 const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
 html += `
