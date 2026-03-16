@@ -2108,179 +2108,193 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Build a table-style compare card with per-product Apply buttons
-    function openCompareCard() {
-        const set = window._funder_compare_set || new Set();
-        if (!set || set.size < 2) return;
+function openCompareCard() {
+    const set = window._funder_compare_set || new Set();
+    if (!set || set.size < 2) return;
 
-        // Build overlay if not present
-        let overlay = document.getElementById('compare-overlay');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'compare-overlay';
-            overlay.style.display = 'none';
-            document.body.appendChild(overlay);
-        }
+    // Build overlay if not present
+    let overlay = document.getElementById('compare-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'compare-overlay';
+        overlay.style.display = 'none';
+        document.body.appendChild(overlay);
+    }
 
-        // Keep only close-x (top-right)
-        overlay.innerHTML = `
-            <div id="compare-card" role="dialog" aria-modal="true">
-                <button class="close-x" aria-label="Close compare">✕</button>
-                <h3 style="margin:0; font-size:18px; color:#149580;">Compare selected options</h3>
-                <div id="compare-content"></div>
-            </div>
-        `;
+    // Keep only close-x (top-right)
+    overlay.innerHTML = `
+        <div id="compare-card" role="dialog" aria-modal="true">
+            <button class="close-x" aria-label="Close compare">✕</button>
+            <h3 style="margin:0; font-size:18px; color:#149580;">Compare selected options</h3>
+            <div id="compare-content"></div>
+        </div>
+    `;
 
-        overlay.querySelector('.close-x').addEventListener('click', () => closeCompareCard(true));
+    overlay.querySelector('.close-x').addEventListener('click', () => closeCompareCard(true));
 
-        const content = document.getElementById('compare-content');
-        content.innerHTML = '';
+    const content = document.getElementById('compare-content');
+    content.innerHTML = '';
 
-        const items = Array.from(set).map(mid => getResultByMatchingId(mid)).filter(Boolean);
-        if (!items.length) {
-            content.innerHTML = '<div style="padding:12px;">No data available for selected items.</div>';
-            overlay.style.display = 'flex';
-            // hide results while overlay is visible
-            const resultsContainer = document.getElementById('funder-results');
-            if (resultsContainer) resultsContainer.style.display = 'none';
-            return;
-        }
+    const items = Array.from(set).map(mid => getResultByMatchingId(mid)).filter(Boolean);
+    if (!items.length) {
+        content.innerHTML = '<div style="padding:12px;">No data available for selected items.</div>';
+        overlay.style.display = 'flex';
+        const resultsContainer = document.getElementById('funder-results');
+        if (resultsContainer) resultsContainer.style.display = 'none';
+        return;
+    }
 
-        // Label columns Option 1, Option 2, Option 3 (no subtitle header)
-        const table = document.createElement('table');
-        table.className = 'compare-table';
+    // Label columns Option 1, Option 2, Option 3
+    const table = document.createElement('table');
+    table.className = 'compare-table';
 
-        // Header row
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-        const emptyTh = document.createElement('th');
-        emptyTh.innerText = '';
-        headerRow.appendChild(emptyTh);
-        items.forEach((it, idx) => {
-            const optionLabel = `Option ${idx + 1}`;
-            const th = document.createElement('th');
-            th.innerHTML = `<div class="compare-product-title">${optionLabel}</div>`;
-            headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    const emptyTh = document.createElement('th');
+    emptyTh.innerText = '';
+    headerRow.appendChild(emptyTh);
 
-        // For BTL we show the requested set of rows; for non-BTL we show a generic set
-        const isAnyBTL = items.some(it => isBTLProduct(it));
+    items.forEach((it, idx) => {
+        const optionLabel = `Option ${idx + 1}`;
+        const th = document.createElement('th');
+        th.innerHTML = `<div class="compare-product-title">${optionLabel}</div>`;
+        headerRow.appendChild(th);
+    });
 
-        // Build rows array depending on product type (BTL fields as requested)
-        const rows = isAnyBTL ? [
-            { key: 'product', label: 'Product' },
-            { key: 'amount_required', label: 'Amount required' },
-            { key: 'monthly_interest', label: 'Monthly interest (est.)' },
-            { key: 'rates_from', label: 'Rates from' },
-            { key: 'max_ltv', label: 'Max LTV' },
-            { key: 'max_term', label: 'Max Term' },
-            { key: 'fees', label: 'Fees' },
-            { key: 'age', label: 'Age' },
-            { key: 'borrower', label: 'Borrower' },
-            { key: 'accepts_ftb', label: 'Accepts first time buyers' },
-            { key: 'property_type', label: 'Property type' },
-            { key: 'min_income', label: 'Min Applicant Income' },
-            { key: 'description', label: 'Description' },
-            { key: 'apply', label: '' }
-        ] : [
-            { key: 'product', label: 'Product' },
-            { key: 'amount_required', label: 'Amount required' },
-            { key: 'monthly_interest', label: 'Monthly interest (est.)' },
-            { key: 'rates_from', label: 'Rates from' },
-            { key: 'max_ltv', label: 'Max LTV' },
-            { key: 'max_term', label: 'Max Term' },
-            { key: 'fees', label: 'Fees' },
-            { key: 'description', label: 'Description' },
-            { key: 'apply', label: '' }
-        ];
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
 
-        const tbody = document.createElement('tbody');
+    // Detect if any selected product is BTL
+    const isAnyBTL = items.some(it => isBTLProduct(it));
 
-        // compute user loan once for monthly interest calculation
-        const userLoan = computeUserLoanAndLtv();
+    // Define rows for BTL vs non-BTL
+    const rows = isAnyBTL ? [
+        { key: 'product', label: 'Product' },
+        { key: 'amount_required', label: 'Amount required' },
+        { key: 'monthly_interest', label: 'Monthly interest (est.)' },
+        { key: 'rates_from', label: 'Rates from' },
+        { key: 'max_ltv', label: 'Max LTV' },
+        { key: 'max_term', label: 'Max Term' },
+        { key: 'fees', label: 'Fees' },
 
-        rows.forEach(rowDef => {
-            const tr = document.createElement('tr');
-            const labelTd = document.createElement('th');
-            labelTd.innerText = rowDef.label;
-            tr.appendChild(labelTd);
+        // NEW BTL FIELDS
+        { key: 'age', label: 'Age' },
+        { key: 'borrower', label: 'Borrower' },
+        { key: 'accepts_ftb', label: 'Accepts first time landlords' },
+        { key: 'property_type', label: 'Property type' },
+        { key: 'min_income', label: 'Min Applicant Income' },
 
-            items.forEach(it => {
-                const td = document.createElement('td');
-                if (rowDef.key === 'product') {
-                    td.innerHTML = `<div style="font-weight:700; color:#149580;">${it.lending_product || it.product_name || it.caption || 'Option'}</div>`;
-                } else if (rowDef.key === 'amount_required') {
-                    // Amount required uses the same loan calculation as computeUserLoanAndLtv
-                    const loan = userLoan.loanAmount;
-                    td.innerText = loan !== null ? formatCurrencyZeroDecimals(loan) : '—';
-                } else if (rowDef.key === 'monthly_interest') {
-                    // interest-only monthly estimate: loanAmount * (rates_from/100) / 12
-                    const loan = userLoan.loanAmount;
-                    // numeric rate must come from rates_from specifically (user requested)
-                    const rate = numericRateFromRatesFrom(it);
-                    if (loan !== null && rate !== null && !isNaN(loan) && !isNaN(rate)) {
-                        const monthly = (loan * (rate / 100)) / 12;
-                        td.innerText = formatCurrency(monthly);
-                    } else {
-                        td.innerText = '—';
-                    }
-                } else if (rowDef.key === 'rates_from') {
-                    td.innerText = formatRateDisplay(it.rates_from || it.rates_from_display || it.rates_from_value || '');
-                } else if (rowDef.key === 'max_ltv') {
-                    td.innerText = it.max_ltv ? (it.max_ltv + '%') : '—';
-                } else if (rowDef.key === 'max_term') {
-                    td.innerText = it.max_term ? (it.max_term + ' years') : '—';
-                } else if (rowDef.key === 'fees') {
-                    td.innerText = it.product_fee || it.fee || '—';
-                } else if (rowDef.key === 'age') {
-                    td.innerText = buildAgeString(it);
-                } else if (rowDef.key === 'borrower') {
-                    td.innerText = buildBorrowerString(it);
-                } else if (rowDef.key === 'accepts_ftb') {
-                    td.innerText = acceptsFirstTimeBuyers(it);
-                } else if (rowDef.key === 'property_type') {
-                    td.innerText = buildPropertyTypeString(it);
-                } else if (rowDef.key === 'min_income') {
-                    td.innerText = getMinIncome(it);
-                } else if (rowDef.key === 'description') {
-                    td.innerText = it.description ? (it.description.substring(0,300) + (it.description.length>300?'…':'')) : '—';
-                } else if (rowDef.key === 'apply') {
-                    const mid = String(it.matching_id || it.matching_id_value || it.id || it.product_id || it.lending_product || '').trim();
-                    const btn = document.createElement('button');
-                    btn.className = 'compare-product-apply';
-                    btn.innerText = 'Apply';
-                    btn.dataset.matchingId = mid;
-                    btn.addEventListener('click', () => {
-                        // set selected product and open progress form for that product
-                        showProgressForProduct(mid);
-                        // close overlay but keep results hidden because we're opening CF7
-                        closeCompareCard(false);
-                    });
-                    td.appendChild(btn);
+        { key: 'description', label: 'Description' },
+        { key: 'apply', label: '' }
+    ] : [
+        { key: 'product', label: 'Product' },
+        { key: 'amount_required', label: 'Amount required' },
+        { key: 'monthly_interest', label: 'Monthly interest (est.)' },
+        { key: 'rates_from', label: 'Rates from' },
+        { key: 'max_ltv', label: 'Max LTV' },
+        { key: 'max_term', label: 'Max Term' },
+        { key: 'fees', label: 'Fees' },
+        { key: 'description', label: 'Description' },
+        { key: 'apply', label: '' }
+    ];
+
+    const tbody = document.createElement('tbody');
+
+    // compute user loan once for monthly interest calculation
+    const userLoan = computeUserLoanAndLtv();
+
+    rows.forEach(rowDef => {
+        const tr = document.createElement('tr');
+        const labelTd = document.createElement('th');
+        labelTd.innerText = rowDef.label;
+        tr.appendChild(labelTd);
+
+        items.forEach(it => {
+            const td = document.createElement('td');
+
+            if (rowDef.key === 'product') {
+                td.innerHTML = `<div style="font-weight:700; color:#149580;">${it.lending_product || it.product_name || it.caption || 'Option'}</div>`;
+
+            } else if (rowDef.key === 'amount_required') {
+                const loan = userLoan.loanAmount;
+                td.innerText = loan !== null ? formatCurrencyZeroDecimals(loan) : '—';
+
+            } else if (rowDef.key === 'monthly_interest') {
+                const loan = userLoan.loanAmount;
+                const rate = numericRateFromRatesFrom(it);
+                if (loan !== null && rate !== null && !isNaN(loan) && !isNaN(rate)) {
+                    const monthly = (loan * (rate / 100)) / 12;
+                    td.innerText = formatCurrency(monthly);
                 } else {
                     td.innerText = '—';
                 }
-                tr.appendChild(td);
-            });
 
-            tbody.appendChild(tr);
+            } else if (rowDef.key === 'rates_from') {
+                td.innerText = formatRateDisplay(it.rates_from || it.rates_from_display || it.rates_from_value || '');
+
+            } else if (rowDef.key === 'max_ltv') {
+                td.innerText = it.max_ltv ? (it.max_ltv + '%') : '—';
+
+            } else if (rowDef.key === 'max_term') {
+                td.innerText = it.max_term ? (it.max_term + ' years') : '—';
+
+            } else if (rowDef.key === 'fees') {
+                td.innerText = it.product_fee || it.fee || '—';
+
+            // NEW BTL FIELDS
+            } else if (rowDef.key === 'age') {
+                td.innerText = isBTLProduct(it) ? buildAgeString(it) : '—';
+
+            } else if (rowDef.key === 'borrower') {
+                td.innerText = isBTLProduct(it) ? buildBorrowerString(it) : '—';
+
+            } else if (rowDef.key === 'accepts_ftb') {
+                td.innerText = isBTLProduct(it) ? acceptsFirstTimeBuyers(it) : '—';
+
+            } else if (rowDef.key === 'property_type') {
+                td.innerText = isBTLProduct(it) ? buildPropertyTypeString(it) : '—';
+
+            } else if (rowDef.key === 'min_income') {
+                td.innerText = isBTLProduct(it) ? getMinIncome(it) : '—';
+
+            } else if (rowDef.key === 'description') {
+                td.innerText = it.description ? (it.description.substring(0,300) + (it.description.length>300?'…':'')) : '—';
+
+            } else if (rowDef.key === 'apply') {
+                const mid = String(it.matching_id || it.matching_id_value || it.id || it.product_id || it.lending_product || '').trim();
+                const btn = document.createElement('button');
+                btn.className = 'compare-product-apply';
+                btn.innerText = 'Apply';
+                btn.dataset.matchingId = mid;
+                btn.addEventListener('click', () => {
+                    showProgressForProduct(mid);
+                    closeCompareCard(false);
+                });
+                td.appendChild(btn);
+
+            } else {
+                td.innerText = '—';
+            }
+
+            tr.appendChild(td);
         });
 
-        table.appendChild(tbody);
-        content.appendChild(table);
+        tbody.appendChild(tr);
+    });
 
-        overlay.style.display = 'flex';
+    table.appendChild(tbody);
+    content.appendChild(table);
 
-        // hide results while overlay is visible
-        const resultsContainer = document.getElementById('funder-results');
-        if (resultsContainer) resultsContainer.style.display = 'none';
+    overlay.style.display = 'flex';
 
-        const card = document.getElementById('compare-card');
-        if (card) {
-            try { card.setAttribute('tabindex', '-1'); card.focus(); } catch (e) {}
-        }
+    const resultsContainer = document.getElementById('funder-results');
+    if (resultsContainer) resultsContainer.style.display = 'none';
+
+    const card = document.getElementById('compare-card');
+    if (card) {
+        try { card.setAttribute('tabindex', '-1'); card.focus(); } catch (e) {}
     }
+}
 
     // closeCompareCard(restoreResults = true)
     // If restoreResults is false, we keep results hidden (useful when immediately opening CF7)
