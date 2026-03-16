@@ -140,31 +140,6 @@ function fm_row_get($row, $candidates = []) {
     return '';
 }
 
-/**
- * Normalize boolean-like flags from sheet values.
- * Returns 'yes' for affirmative, 'no' for negative, '' for unknown/empty.
- */
-function fm_normalize_flag($value) {
-    if ($value === null || $value === '') {
-        return '';
-    }
-    $v = strtolower(trim((string)$value));
-    if (in_array($v, ['yes', 'y', '1', 'true', 't'], true)) {
-        return 'yes';
-    }
-    if (in_array($v, ['no', 'n', '0', 'false', 'f'], true)) {
-        return 'no';
-    }
-    // Some sheets may have 'accept' / 'accepted' etc.
-    if (strpos($v, 'yes') !== false || strpos($v, 'accept') !== false) {
-        return 'yes';
-    }
-    if (strpos($v, 'no') !== false || strpos($v, 'not') !== false) {
-        return 'no';
-    }
-    return '';
-}
-
 /* ---------------------------------------------------------
    AUTH HELPERS
 --------------------------------------------------------- */
@@ -314,7 +289,6 @@ function run_funder_matching() {
         $loan_required = 0;
         $ltv           = 0;
 
-
         if ($purchase_type === 'purchase') {
             $purchase_price = fm_parse_number($get('currency-3'));
             $deposit        = fm_parse_number($get('currency-4'));
@@ -426,19 +400,19 @@ function run_funder_matching() {
             }
 
             // --- HMO FILTERING ---
-            $accepts_hmo = fm_normalize_flag(fm_row_get($row, ['accepts_hmo']));
+            $accepts_hmo = strtolower(trim(fm_row_get($row, ['accepts_hmo'])));
             if ($accepts_hmo === '') { $accepts_hmo = 'no'; }
             if ($user_hmo === 'yes' && $accepts_hmo !== 'yes') { $failures[] = "HMO not accepted"; }
             if ($user_hmo === 'no' && $accepts_hmo === 'yes') { $failures[] = "HMO product not suitable"; }
 
             // --- MUFB FILTERING ---
-            $accepts_mufb = fm_normalize_flag(fm_row_get($row, ['accepts_mufb']));
+            $accepts_mufb = strtolower(trim(fm_row_get($row, ['accepts_mufb'])));
             if ($accepts_mufb === '') { $accepts_mufb = 'no'; }
             if ($user_mufb === 'yes' && $accepts_mufb !== 'yes') { $failures[] = "MUFB not accepted"; }
             if ($user_mufb === 'no' && $accepts_mufb === 'yes') { $failures[] = "MUFB product not suitable"; }
 
             // --- HOLIDAY LET FILTERING ---
-            $accepts_holiday = fm_normalize_flag(fm_row_get($row, ['accepts_holiday', 'accepts_hol']));
+            $accepts_holiday = strtolower(trim(fm_row_get($row, ['accepts_holiday'])));
             if ($accepts_holiday === '') { $accepts_holiday = 'no'; }
             if ($user_holiday === 'yes' && $accepts_holiday !== 'yes') { $failures[] = "Holiday Let not accepted"; }
             if ($user_holiday === 'no' && $accepts_holiday === 'yes') { $failures[] = "Holiday Let product not suitable"; }
@@ -455,29 +429,29 @@ function run_funder_matching() {
             }
 
             // --- FIRST TIME LANDLORD ---
-            $row_first_time = fm_normalize_flag(fm_row_get($row, ['accepts_first_time', 'first_time', 'accepts_first_time_landlord']));
+            $row_first_time = fm_row_get($row, ['accepts_first_time', 'first_time']);
             if (
                 $first_time_raw !== '' &&
                 $row_first_time !== '' &&
-                $row_first_time === 'no' &&
+                strtolower($row_first_time) === 'no' &&
                 $first_time_raw === 'yes'
             ) {
                 $failures[] = "first_time landlord not accepted";
             }
 
             // --- HOMEOWNER ---
-            $row_homeowner = fm_normalize_flag(fm_row_get($row, ['homeowner_required', 'homeowner', 'requires_homeowner']));
+            $row_homeowner = fm_row_get($row, ['homeowner_required', 'homeowner']);
             if (
                 $homeowner_raw !== '' &&
                 $row_homeowner !== '' &&
-                $row_homeowner === 'yes' &&
+                strtolower($row_homeowner) === 'yes' &&
                 $homeowner_raw === 'no'
             ) {
                 $failures[] = "non-homeowner not accepted";
             }
 
             // --- AGE ---
-            $row_max_age = fm_row_get($row, ['max_age', 'max_age_value']);
+            $row_max_age = fm_row_get($row, ['max_age']);
             if ($row_max_age !== '' && $actual_age !== null) {
                 if ((int) $actual_age > (int) $row_max_age) {
                     $failures[] = "max_age exceeded";
@@ -543,12 +517,12 @@ function run_funder_matching() {
             }
 
             // --- NON-STANDARD CONSTRUCTION ---
-            $accepts_nonstandard = fm_normalize_flag(fm_row_get($row, ['accepts_nonstandard', 'accepts_non_standard']));
+            $accepts_nonstandard = fm_row_get($row, ['accepts_nonstandard']);
             $user_construction   = strtolower(trim($get('radio-15', '')));
             if (
                 $user_construction !== '' &&
                 $accepts_nonstandard !== '' &&
-                $accepts_nonstandard === 'no' &&
+                strtolower($accepts_nonstandard) === 'no' &&
                 $user_construction !== 'standard'
             ) {
                 $failures[] = "non-standard construction not accepted";
@@ -651,12 +625,12 @@ function run_funder_matching() {
                ADD FRONTEND FILTER FIELDS
             --------------------------------------------------------- */
 
-            // PROPERTY TYPE (keep raw flags too)
-            if ($accepts_hmo === 'yes') {
+            // PROPERTY TYPE
+            if (strtolower($accepts_hmo) === 'yes') {
                 $prop_type = 'hmo';
-            } elseif ($accepts_mufb === 'yes') {
+            } elseif (strtolower($accepts_mufb) === 'yes') {
                 $prop_type = 'mufb';
-            } elseif ($accepts_holiday === 'yes') {
+            } elseif (strtolower($accepts_holiday) === 'yes') {
                 $prop_type = 'holiday';
             } else {
                 $prop_type = 'standard';
@@ -697,17 +671,6 @@ function run_funder_matching() {
             // ensure it's a string
             $matching_id = (string) $matching_id;
 
-            // --- canonical fields to include in matched result ---
-            $min_age_val = fm_row_get($row, ['min_age', 'min_age_value']);
-            $max_age_val = fm_row_get($row, ['max_age', 'max_age_value']);
-            $borrower_type_val = fm_row_get($row, ['borrower_type', 'borrower']);
-            $accepts_ltd_val = fm_normalize_flag(fm_row_get($row, ['accepts_ltd', 'accepts_ltd_companies', 'accepts_ltd_company']));
-            $accepts_individual_val = fm_normalize_flag(fm_row_get($row, ['accepts_individual', 'accepts_individuals']));
-            $homeowner_required_val = fm_normalize_flag(fm_row_get($row, ['homeowner_required', 'requires_homeowner']));
-            $accepts_first_time_val = fm_normalize_flag(fm_row_get($row, ['accepts_first_time', 'first_time', 'accepts_first_time_landlord']));
-            $accepts_nonstandard_val = fm_normalize_flag(fm_row_get($row, ['accepts_nonstandard', 'accepts_non_standard']));
-            $min_income_val = fm_row_get($row, ['min_income', 'minimum_income']);
-
             // --- STORE MATCH ---
             $matches[] = [
                 'option_label'    => 'Option ' . (count($matches) + 1),
@@ -719,21 +682,7 @@ function run_funder_matching() {
                 'lending_product' => $row['lending_product'] ?? '',
                 'total_cost'      => $total_cost,
 
-                // NEW FILTER FIELDS (canonical)
-                'min_age'         => $min_age_val !== '' ? $min_age_val : '',
-                'max_age'         => $max_age_val !== '' ? $max_age_val : '',
-                'borrower_type'   => $borrower_type_val !== '' ? $borrower_type_val : '',
-                'accepts_ltd'     => $accepts_ltd_val,
-                'accepts_individual' => $accepts_individual_val,
-                'homeowner_required' => $homeowner_required_val,
-                'accepts_first_time' => $accepts_first_time_val,
-                'accepts_hmo'     => $accepts_hmo,
-                'accepts_mufb'    => $accepts_mufb,
-                'accepts_holiday' => $accepts_holiday,
-                'accepts_nonstandard' => $accepts_nonstandard_val,
-                'min_income'      => $min_income_val !== '' ? $min_income_val : '',
-
-                // existing frontend filter fields
+                // NEW FILTER FIELDS
                 'prop_type'       => $prop_type,
                 'rate_type'       => $rate_type,
                 'product_term'    => $product_term,
@@ -779,7 +728,6 @@ function run_funder_matching() {
 
         $loan_required = 0;
         $ltv           = 0;
-
 
         if ($purchase_type === 'purchase') {
             $purchase_price = fm_parse_number($get('currency-3'));
@@ -978,7 +926,6 @@ function run_funder_matching() {
                 $annual_rent_paid = fm_parse_number($rent_paid_raw) ?: 0;
                 $combined         = $net_profit + $annual_rent_paid;
 
-
                 if (COMM_DEBUG_TOGGLE) {
                     $dbg_owner = sprintf(
                         "DBG-OWNER %s | loan=%.2f | rate=%s | term=%s | annual_payment=%.2f | min_dsc=%s | required=%.2f | combined=%.2f\n",
@@ -1134,11 +1081,10 @@ function run_funder_matching() {
             $product_term = 'lifetime';
         }
 
-        // property type flags
-        $accepts_hmo    = fm_normalize_flag(fm_row_get($row, ['accepts_hmo']));
-        $accepts_mufb   = fm_normalize_flag(fm_row_get($row, ['accepts_mufb']));
-        $accepts_holiday= fm_normalize_flag(fm_row_get($row, ['accepts_holiday', 'accepts_hol']));
-        $accepts_nonstandard = fm_normalize_flag(fm_row_get($row, ['accepts_nonstandard', 'accepts_non_standard']));
+        // property type
+        $accepts_hmo    = strtolower(trim(fm_row_get($row, ['accepts_hmo'])));
+        $accepts_mufb   = strtolower(trim(fm_row_get($row, ['accepts_mufb'])));
+        $accepts_holiday= strtolower(trim(fm_row_get($row, ['accepts_holiday'])));
         if ($accepts_hmo === 'yes') {
             $prop_type = 'hmo';
         } elseif ($accepts_mufb === 'yes') {
@@ -1170,16 +1116,6 @@ function run_funder_matching() {
         $max_ltv    = fm_row_get($row, ['max_ltv', 'maximum_ltv']) ?: '';
         $max_term   = fm_row_get($row, ['max_term']) ?: '';
 
-        // canonical fields for new compare UI
-        $min_age = fm_row_get($row, ['min_age', 'min_age_value']) ?: '';
-        $max_age = fm_row_get($row, ['max_age', 'max_age_value']) ?: '';
-        $borrower_type = fm_row_get($row, ['borrower_type', 'borrower']) ?: '';
-        $accepts_ltd = fm_normalize_flag(fm_row_get($row, ['accepts_ltd', 'accepts_ltd_companies', 'accepts_ltd_company']));
-        $accepts_individual = fm_normalize_flag(fm_row_get($row, ['accepts_individual', 'accepts_individuals']));
-        $homeowner_required = fm_normalize_flag(fm_row_get($row, ['homeowner_required', 'requires_homeowner']));
-        $accepts_first_time = fm_normalize_flag(fm_row_get($row, ['accepts_first_time', 'first_time', 'accepts_first_time_landlord']));
-        $min_income = fm_row_get($row, ['min_income', 'minimum_income']) ?: '';
-
         // attach canonical fields while preserving original row data
         $row['funder_id']    = fm_row_get($row, ['funder_id', 'id', 'internal_id']) ?: 'UNKNOWN';
         $row['rate_type']    = $rate_type;
@@ -1190,20 +1126,33 @@ function run_funder_matching() {
         $row['max_ltv']      = $max_ltv;
         $row['max_term']     = $max_term;
         $row['matching_id']  = $matching_id;
+        // ---------------------------------------------------------
+        // NEW CANONICAL FIELDS FOR BTL PORTAL DISPLAY
+        // ---------------------------------------------------------
 
-        // new canonical keys for client
-        $row['min_age'] = $min_age;
-        $row['max_age'] = $max_age;
-        $row['borrower_type'] = $borrower_type;
-        $row['accepts_ltd'] = $accepts_ltd;
-        $row['accepts_individual'] = $accepts_individual;
-        $row['homeowner_required'] = $homeowner_required;
-        $row['accepts_first_time'] = $accepts_first_time;
-        $row['accepts_hmo'] = $accepts_hmo;
-        $row['accepts_mufb'] = $accepts_mufb;
-        $row['accepts_holiday'] = $accepts_holiday;
-        $row['accepts_nonstandard'] = $accepts_nonstandard;
-        $row['min_income'] = $min_income;
+        // Age range
+        $row['canonical_age'] = $row['min_age'] . ' - ' . $row['max_age'];
+
+        // Borrower (Ltd / Individual / Homeowner)
+        $borrower = [];
+        if (stripos($row['borrower_type'], 'ltd') !== false) $borrower[] = 'Ltd';
+        if (stripos($row['borrower_type'], 'individual') !== false) $borrower[] = 'Individual';
+        if (strtolower(trim($row['homeowner_required'])) === 'yes') $borrower[] = 'Homeowner';
+        $row['canonical_borrower'] = implode(', ', $borrower);
+
+        // First-time landlord
+        $row['canonical_ftl'] = (strtolower(trim($row['accepts_first_time'])) === 'yes') ? 'Yes' : 'No';
+
+        // Property type (HMO, MUFB, Holiday Let, Non-standard)
+        $ptype = [];
+        if (strtolower(trim($row['accepts_hmo'])) === 'yes') $ptype[] = 'HMO';
+        if (strtolower(trim($row['accepts_mufb'])) === 'yes') $ptype[] = 'MUFB';
+        if (strtolower(trim($row['accepts_holiday'])) === 'yes') $ptype[] = 'Holiday Let';
+        if (strtolower(trim($row['accepts_nonstandard'])) === 'yes') $ptype[] = 'Non-standard';
+        $row['canonical_property_type'] = implode(', ', $ptype);
+
+        // Minimum income
+        $row['canonical_min_income'] = $row['min_income'];
 
         $enriched_all[] = $row;
     }
@@ -1227,20 +1176,6 @@ function run_funder_matching() {
             if ($found) {
                 $matches[$idx]['funder_id'] = $found['funder_id'] ?? 'UNKNOWN';
                 $matches[$idx]['matching_id'] = $found['matching_id'] ?? ($found['funder_id'] ?? 'UNKNOWN');
-
-                // also copy canonical fields from enriched row if missing
-                $matches[$idx]['min_age'] = $matches[$idx]['min_age'] ?? ($found['min_age'] ?? '');
-                $matches[$idx]['max_age'] = $matches[$idx]['max_age'] ?? ($found['max_age'] ?? '');
-                $matches[$idx]['borrower_type'] = $matches[$idx]['borrower_type'] ?? ($found['borrower_type'] ?? '');
-                $matches[$idx]['accepts_ltd'] = $matches[$idx]['accepts_ltd'] ?? ($found['accepts_ltd'] ?? '');
-                $matches[$idx]['accepts_individual'] = $matches[$idx]['accepts_individual'] ?? ($found['accepts_individual'] ?? '');
-                $matches[$idx]['homeowner_required'] = $matches[$idx]['homeowner_required'] ?? ($found['homeowner_required'] ?? '');
-                $matches[$idx]['accepts_first_time'] = $matches[$idx]['accepts_first_time'] ?? ($found['accepts_first_time'] ?? '');
-                $matches[$idx]['accepts_hmo'] = $matches[$idx]['accepts_hmo'] ?? ($found['accepts_hmo'] ?? '');
-                $matches[$idx]['accepts_mufb'] = $matches[$idx]['accepts_mufb'] ?? ($found['accepts_mufb'] ?? '');
-                $matches[$idx]['accepts_holiday'] = $matches[$idx]['accepts_holiday'] ?? ($found['accepts_holiday'] ?? '');
-                $matches[$idx]['accepts_nonstandard'] = $matches[$idx]['accepts_nonstandard'] ?? ($found['accepts_nonstandard'] ?? '');
-                $matches[$idx]['min_income'] = $matches[$idx]['min_income'] ?? ($found['min_income'] ?? '');
             } else {
                 // fallback: ensure matching_id exists
                 if (empty($matches[$idx]['matching_id'])) {
