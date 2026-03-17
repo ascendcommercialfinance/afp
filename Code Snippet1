@@ -687,38 +687,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
 
-    let adjustedResultsRaw = allResultsRaw;
-
-    if (userAge) {
-        adjustedResultsRaw = allResultsRaw
-            .map(item => {
-                const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
-                const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
-
-                // If lender missing age/term data, keep original
-                if (!lenderMaxAge || !lenderMaxTerm) {
-                    return {
-                        ...item,
-                        max_term_adjusted: lenderMaxTerm
-                    };
-                }
-
-                const ageRemaining = lenderMaxAge - userAge;
-
-                // If user already exceeds lender max age → remove lender entirely
-                if (ageRemaining <= 0) return null;
-
-                // Reduce term if needed
-                const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
-
-                return {
-                    ...item,
-                    max_term_adjusted: adjustedTerm,
-                    product_term_display: adjustedTerm
-                };
-            })
-            .filter(Boolean);
-    }
+    // Use backend values exactly as sent — no JS age adjustment needed
+let adjustedResultsRaw = allResultsRaw.slice();
+            
 
     // Build togglePool from adjusted results (NOT allResultsRaw)
     const togglePool = adjustedResultsRaw.filter(item => {
@@ -728,34 +699,8 @@ document.addEventListener("DOMContentLoaded", function () {
     
     // --- AGE-ADJUST matched_results as well (for eligibleResults) ---
     const matchedRaw = Array.isArray(data.matched_results) ? data.matched_results : [];
-    let adjustedMatched = matchedRaw;
-
-    if (userAge) {
-        adjustedMatched = matchedRaw
-            .map(item => {
-                const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
-                const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
-
-                if (!lenderMaxAge || !lenderMaxTerm) {
-                    return {
-                        ...item,
-                        max_term_adjusted: lenderMaxTerm
-                    };
-                }
-
-                const ageRemaining = lenderMaxAge - userAge;
-                if (ageRemaining <= 0) return null;
-
-                const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
-
-                return {
-                    ...item,
-                    max_term_adjusted: adjustedTerm,
-                    product_term_display: adjustedTerm
-                };
-            })
-            .filter(Boolean);
-    }
+    // Use backend values exactly as sent — no JS age adjustment needed
+let adjustedMatched = matchedRaw.slice();
 
     // eligible = backend-approved, age-adjusted
     eligibleResults = adjustedMatched.slice();
@@ -1966,18 +1911,31 @@ const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
         });
     }
 
-    function getResultByMatchingId(mid) {
+        function getResultByMatchingId(mid) {
         if (!mid) return null;
-        const all = Array.isArray(allResults) ? allResults.concat(fullResults || []) : (fullResults || []);
-        for (const r of all) {
-            const id = String(r.matching_id || r.matching_id_value || r.id || r.product_id || r.lending_product || '').trim();
-            if (id === mid) return r;
+
+        // Always search adjusted pools first
+        const pools = [
+            fullResults,     // age-adjusted all_results
+            eligibleResults, // age-adjusted matched_results
+            allResults       // fallback
+        ];
+
+        for (const pool of pools) {
+            if (!Array.isArray(pool)) continue;
+            for (const r of pool) {
+                const id = String(
+                    r.matching_id ||
+                    r.matching_id_value ||
+                    r.id ||
+                    r.product_id ||
+                    r.lending_product ||
+                    ''
+                ).trim();
+                if (id === mid) return r;
+            }
         }
-        // fallback: search fullResults
-        for (const r of (fullResults || [])) {
-            const id = String(r.matching_id || r.matching_id_value || r.id || r.product_id || r.lending_product || '').trim();
-            if (id === mid) return r;
-        }
+
         return null;
     }
 
