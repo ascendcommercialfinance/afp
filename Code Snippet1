@@ -4,7 +4,7 @@ function funder_script_shortcode() {
     ?>
 
 <!-- CF7 PROGRESS FORM (STATIC EMBED, HIDDEN INITIALLY) -->
-<div id="progress-form-container" style="display:none; margin-top:30px;">
+<div id="progress-form-container" style="display:none;">
     <?php echo do_shortcode('[contact-form-7 id="10074" title="Portal Contact Form"]'); ?>
 </div>
 
@@ -82,18 +82,16 @@ function funder_script_shortcode() {
 /* Ensure load-more wrapper is full width and sits after list */
 .load-more-wrapper { width: 100%; display: block; text-align:center; margin: 12px 0 40px 0; }
 
-/* Back to results button */
 #back-to-results-btn {
-  position: fixed;
-  bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: absolute;
+  top: 10px;
+  right: 10px;
   background: #149580;
   color: #fff;
-  padding: 10px 14px;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-  z-index: 1000000; /* higher than compare button */
+  padding: 0px 7px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  z-index: 1000000;
   font-weight: 700;
   cursor: pointer;
   display: none;
@@ -949,9 +947,9 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
     const cardStyle = `
         border:1px solid #e5e5e5;
-        border-radius:8px;
+        border-radius:6px;
         padding:20px;
-        margin-bottom:20px;
+        margin-bottom:0px;
         background:white;
         box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05), inset 0 2px 2px rgba(255, 255, 255, 0.9), inset 0 -2px 3px rgba(0, 0, 0, 0.05);
         margin-top: 10px!important;
@@ -1182,24 +1180,46 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
             const bestMid = String(best.matching_id || best.matching_id_value || best.id || best.product_id || best.lending_product || '').trim();
             const checkedAttr = window._funder_compare_set.has(bestMid) ? 'checked' : '';
             cardsHtml += `
-                <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
-                    <label class="compare-checkbox"><input type="checkbox" class="compare-select" data-matching-id="${bestMid}" ${checkedAttr}> Compare</label>
-                    <div style="font-size:16px; font-weight:700; margin-bottom:10px;">Best Match ⭐</div>
-                    <div style="margin-bottom:12px;">
-                        <span style="${tagBlue}">${best.lending_product || best.product_name || ''}</span>
-                        <span style="${tagGreen}">${best.caption || ''}</span>
-                    </div>
-                    <div style="display:flex; gap:30px; margin-bottom:15px;">
-                        <div><div style="${statLabel}">Rates from</div><div style="${statValue}">${formatRateDisplay(best.rates_from || best.rates_from_display || best.rates_from_value || '')}</div></div>
-                        <div><div style="${statLabel}">Max LTV</div><div style="${statValue}">${best.max_ltv || ''}%</div></div>
-                        <div><div style="${statLabel}">Max Term</div><div style="${statValue}">${best.max_term || ''} years</div></div>
-                    </div>
-                    <div style="font-size:14px; color:#444; margin-bottom:20px; border-top: 1px solid #4445;">${best.description || ''}</div>
-                    <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
-                        <button class="apply-btn" data-matching-id="${bestMid}" style="background:#149580; color:white; border-radius:6px; font-size:12px; font-weight:600; line-height:36px; cursor:pointer; padding:0 18px;">Apply</button>
-                    </div>
-                </div>
-            `;
+    <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
+        <label class="compare-checkbox">
+            <input type="checkbox" class="compare-select" data-matching-id="${bestMid}" ${checkedAttr}> Compare
+        </label>
+
+        <div style="font-size:16px; font-weight:700; margin-bottom:10px;">Best Match ⭐</div>
+
+        <div style="margin-bottom:12px;">
+            <span style="${tagBlue}">${best.lending_product || best.product_name || ''}</span>
+            <span style="${tagGreen}">${best.caption || ''}</span>
+        </div>
+
+        <div style="display:flex; gap:30px; margin-bottom:15px;">
+            <div>
+                <div style="${statLabel}">Rates from</div>
+                <div style="${statValue}">${formatRateDisplay(best.rates_from || best.rates_from_display || best.rates_from_value || '')}</div>
+            </div>
+            <div>
+                <div style="${statLabel}">Max LTV</div>
+                <div style="${statValue}">${best.max_ltv || ''}%</div>
+            </div>
+            <div>
+                <div style="${statLabel}">Max Term</div>
+                <div style="${statValue}">${best.max_term || ''} years</div>
+            </div>
+        </div>
+
+        <!-- ⭐ DESCRIPTION + APPLY BUTTON IN ONE ROW -->
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:10px;">
+            <div style="font-size:14px; color:#444; flex:1; border-top:1px solid #4445; padding-top:12px;">
+                ${best.description || ''}
+            </div>
+
+            <button class="apply-btn" data-matching-id="${bestMid}"
+                style="background:#149580; color:white; border-radius:6px; font-size:12px; font-weight:600; line-height:36px; cursor:pointer; padding:0 18px; white-space:nowrap; margin-bottom: -22px;">
+                Apply
+            </button>
+        </div>
+    </div>
+`;
         }
 
         // If Best Match was included above, avoid duplicating it in page items
@@ -1211,23 +1231,44 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
             const mid = String(opt.matching_id || opt.matching_id_value || opt.id || opt.product_id || opt.lending_product || '').trim();
             const checkedAttr = window._funder_compare_set.has(mid) ? 'checked' : '';
             cardsHtml += `
-                <div class="result-card new" style="${cardStyle}">
-                    <label class="compare-checkbox"><input type="checkbox" class="compare-select" data-matching-id="${mid}" ${checkedAttr}> Compare</label>
-                    <div style="margin-bottom:12px;">
-                        <span style="${tagBlue}">${opt.lending_product || opt.product_name || ''}</span>
-                        <span style="${tagGreen}">${opt.caption || ''}</span>
+            <div class="result-card new" style="${cardStyle}">
+                <label class="compare-checkbox">
+                    <input type="checkbox" class="compare-select" data-matching-id="${mid}" ${checkedAttr}> Compare
+                </label>
+
+                <div style="margin-bottom:12px;">
+                    <span style="${tagBlue}">${opt.lending_product || opt.product_name || ''}</span>
+                    <span style="${tagGreen}">${opt.caption || ''}</span>
+                </div>
+
+                <div style="display:flex; gap:30px; margin-bottom:15px;">
+                    <div>
+                        <div style="${statLabel}">Rates from</div>
+                        <div style="${statValue}">${formatRateDisplay(opt.rates_from || opt.rates_from_display || opt.rates_from_value || '')}</div>
                     </div>
-                    <div style="display:flex; gap:30px; margin-bottom:15px;">
-                        <div><div style="${statLabel}">Rates from</div><div style="${statValue}">${formatRateDisplay(opt.rates_from || opt.rates_from_display || opt.rates_from_value || '')}</div></div>
-                        <div><div style="${statLabel}">Max LTV</div><div style="${statValue}">${opt.max_ltv || ''}%</div></div>
-                        <div><div style="${statLabel}">Max Term</div><div style="${statValue}">${opt.max_term || ''} years</div></div>
+                    <div>
+                        <div style="${statLabel}">Max LTV</div>
+                        <div style="${statValue}">${opt.max_ltv || ''}%</div>
                     </div>
-                    <div style="font-size:14px; color:#444; margin-bottom:20px; border-top: 1px solid #4445;">${opt.description || ''}</div>
-                    <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
-                        <button class="apply-btn" data-matching-id="${mid}" style="background:#149580; color:white; border-radius:6px; font-size:12px; font-weight:600; line-height:36px; cursor:pointer; padding:0 18px;">Apply</button>
+                    <div>
+                        <div style="${statLabel}">Max Term</div>
+                        <div style="${statValue}">${opt.max_term || ''} years</div>
                     </div>
                 </div>
-            `;
+
+                <!-- ⭐ DESCRIPTION + APPLY BUTTON IN ONE ROW -->
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:20px; margin-bottom:10px;">
+                    <div style="font-size:14px; color:#444; flex:1; border-top:1px solid #4445; padding-top:12px;">
+                        ${opt.description || ''}
+                    </div>
+
+                    <button class="apply-btn" data-matching-id="${mid}"
+                        style="background:#149580; color:white; border-radius:6px; font-size:12px; font-weight:600; line-height:36px; cursor:pointer; padding:0 18px; white-space:nowrap; margin-bottom: -22px;">
+                        Apply
+                    </button>
+                </div>
+            </div>
+        `;
         });
 
         // Add Load more button if there are more items after this page
@@ -1572,49 +1613,75 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
     /* ---------- Back to results button: create early, show/hide reliably ---------- */
 
     (function createBackToResultsButton() {
-        if (!document.getElementById('back-to-results-btn')) {
-            const btn = document.createElement('button');
-            btn.id = 'back-to-results-btn';
-            btn.innerHTML = '<span>Back to results</span>';
-            btn.style.zIndex = '1000000';
-            btn.style.display = 'none';
-            document.body.appendChild(btn);
+    if (!document.getElementById('back-to-results-btn')) {
 
-            btn.addEventListener('click', () => {
-                window._funderIntentionalHide = true;
-                setTimeout(() => { window._funderIntentionalHide = false; updateBackToResultsVisibility(); }, 80);
+        const btn = document.createElement('button');
+        btn.id = 'back-to-results-btn';
+        btn.innerHTML = '<span>X</span>';
+        btn.style.display = 'none';
 
-                const progressContainer = document.getElementById('progress-form-container');
-                if (progressContainer) {
-                    try { progressContainer.style.setProperty('display', 'none', 'important'); } catch(e) { progressContainer.style.display = 'none'; }
-                }
+        // Do NOT append yet — wait until form is shown
 
-                const cf7Els = document.querySelectorAll('.wpcf7, .wpcf7-form, .wpcf7-response-output, .wpcf7-mail-sent-ok');
-                cf7Els.forEach(el => {
-                    try { el.style.setProperty('display', 'none', 'important'); } catch(e) { el.style.display = 'none'; }
-                });
+        btn.addEventListener('click', () => {
+            window._funderIntentionalHide = true;
+            setTimeout(() => { 
+                window._funderIntentionalHide = false; 
+                updateBackToResultsVisibility(); 
+            }, 80);
 
-                const resultsContainer = document.getElementById('funder-results');
-                const resultsList = document.getElementById('results-list');
-                if (resultsContainer) {
-                    resultsContainer.style.display = 'block';
-                }
-                const target = resultsList || resultsContainer;
-                if (target) {
-                    try {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        const firstCard = resultsContainer ? resultsContainer.querySelector('.result-card, .result-card.new, #results-list > *') : null;
-                        if (firstCard && typeof firstCard.focus === 'function') {
-                            try { firstCard.setAttribute('tabindex', '-1'); firstCard.focus(); } catch (e) {}
-                        }
-                    } catch (e) {
-                        window.scrollTo({ top: target.getBoundingClientRect ? (window.scrollY + target.getBoundingClientRect().top) : 0, behavior: 'smooth' });
-                    }
-                }
+            const progressContainer = document.getElementById('progress-form-container');
+            if (progressContainer) {
+                try { progressContainer.style.setProperty('display', 'none', 'important'); }
+                catch(e) { progressContainer.style.display = 'none'; }
+            }
 
-                btn.style.display = 'none';
+            const cf7Els = document.querySelectorAll('.wpcf7, .wpcf7-form, .wpcf7-response-output, .wpcf7-mail-sent-ok');
+            cf7Els.forEach(el => {
+                try { el.style.setProperty('display', 'none', 'important'); }
+                catch(e) { el.style.display = 'none'; }
             });
-        }
+
+            const resultsContainer = document.getElementById('funder-results');
+            const resultsList = document.getElementById('results-list');
+            if (resultsContainer) resultsContainer.style.display = 'block';
+
+            const target = resultsList || resultsContainer;
+            if (target) {
+                try {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    const firstCard = resultsContainer ? resultsContainer.querySelector('.result-card, .result-card.new, #results-list > *') : null;
+                    if (firstCard && typeof firstCard.focus === 'function') {
+                        firstCard.setAttribute('tabindex', '-1');
+                        firstCard.focus();
+                    }
+                } catch (e) {
+                    window.scrollTo({ 
+                        top: target.getBoundingClientRect ? (window.scrollY + target.getBoundingClientRect().top) : 0, 
+                        behavior: 'smooth' 
+                    });
+                }
+            }
+
+            btn.style.display = 'none';
+        });
+
+        // 🔥 Hook into the moment the form is shown
+        const observer = new MutationObserver(() => {
+            const container = document.getElementById('progress-form-container');
+            if (container && container.style.display !== 'none') {
+
+                // Append button INSIDE the form container (top-right)
+                if (!container.querySelector('#back-to-results-btn')) {
+                    container.style.position = 'relative'; // required for absolute positioning
+                    container.appendChild(btn);
+                }
+
+                btn.style.display = 'block';
+            }
+        });
+
+        observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+    }
     })();
 
     // Create floating compare button (only one)
