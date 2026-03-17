@@ -642,147 +642,256 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function displayResults(data) {
-        window.lastResults = Array.isArray(data.matched_results) ? data.matched_results.slice() : [];
-        console.log("RESULT SAMPLE:", (data.matched_results || [])[0]);
+    window.lastResults = Array.isArray(data.matched_results) ? data.matched_results.slice() : [];
+    console.log("RESULT SAMPLE:", (data.matched_results || [])[0]);
 
-        const container = document.getElementById("funder-results");
-        const content = document.getElementById("funder-results-content");
-        if (!container || !content) return;
+    const container = document.getElementById("funder-results");
+    const content = document.getElementById("funder-results-content");
+    if (!container || !content) return;
 
-        fullResults = Array.isArray(data.all_results) ? data.all_results.slice() : [];
-        eligibleResults = Array.isArray(data.matched_results) ? data.matched_results.slice() : [];
-        allResults = Array.isArray(data.all_results) ? data.all_results.slice() : [];
+    // Build HARD FAILURE MAP
+    const HARD_FAILURES = [
+        "location not accepted",
+        "historic CCJs not accepted",
+        "recent CCJs not accepted",
+        "missed payments not accepted",
+        "property not habitable",
+        "first_time landlord not accepted",
+        "non-homeowner not accepted",
+        "max_age exceeded",
+        "loan below minimum",
+        "loan above minimum",
+        "LTV above max",
+        "rental cover shortfall",
+        "non-standard construction not accepted"
+    ];
 
-        let html = "";
+    // Build hardFailMap from diagnostics
+    const diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
+    const hardFailMap = new Set();
 
-        html += `
+    diagnostics.forEach(d => {
+        if (!d || !d.funder_id || !Array.isArray(d.reasons)) return;
+        const failedHard = d.reasons.some(r => HARD_FAILURES.includes(r));
+        if (failedHard) hardFailMap.add(d.funder_id);
+    });
+
+    // Build togglePool = adjusted results minus hard failures
+    const allResultsRaw = Array.isArray(data.all_results) ? data.all_results : [];
+
+    // --- AGE-BASED TERM REDUCTION LOGIC ---
+    const userAgeRaw =
+        window._funder_form_answers?.["number-1"]?.values?.[0] ||
+        window._funder_form_answers?.["age"]?.values?.[0] ||
+        null;
+
+    const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
+
+    let adjustedResultsRaw = allResultsRaw;
+
+    if (userAge) {
+        adjustedResultsRaw = allResultsRaw
+            .map(item => {
+                const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
+                const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
+
+                // If lender missing age/term data, keep original
+                if (!lenderMaxAge || !lenderMaxTerm) {
+                    return {
+                        ...item,
+                        max_term_adjusted: lenderMaxTerm
+                    };
+                }
+
+                const ageRemaining = lenderMaxAge - userAge;
+
+                // If user already exceeds lender max age → remove lender entirely
+                if (ageRemaining <= 0) return null;
+
+                // Reduce term if needed
+                const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
+
+                return {
+                    ...item,
+                    max_term_adjusted: adjustedTerm,
+                    product_term_display: adjustedTerm
+                };
+            })
+            .filter(Boolean);
+    }
+
+    // Build togglePool from adjusted results (NOT allResultsRaw)
+    const togglePool = adjustedResultsRaw.filter(item => {
+        if (!item || !item.funder_id) return false;
+        return !hardFailMap.has(item.funder_id);
+    });
+    
+    // --- AGE-ADJUST matched_results as well (for eligibleResults) ---
+    const matchedRaw = Array.isArray(data.matched_results) ? data.matched_results : [];
+    let adjustedMatched = matchedRaw;
+
+    if (userAge) {
+        adjustedMatched = matchedRaw
+            .map(item => {
+                const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
+                const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
+
+                if (!lenderMaxAge || !lenderMaxTerm) {
+                    return {
+                        ...item,
+                        max_term_adjusted: lenderMaxTerm
+                    };
+                }
+
+                const ageRemaining = lenderMaxAge - userAge;
+                if (ageRemaining <= 0) return null;
+
+                const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
+
+                return {
+                    ...item,
+                    max_term_adjusted: adjustedTerm,
+                    product_term_display: adjustedTerm
+                };
+            })
+            .filter(Boolean);
+    }
+
+    // eligible = backend-approved, age-adjusted
+    eligibleResults = adjustedMatched.slice();
+
+    // soft pool = all results except hard failures
+    fullResults = togglePool.slice();
+    allResults = togglePool.slice();
+
+    let html = "";
+
+    html += `
+        <div style="
+            background:#e6f7ec;
+            border:1px solid #14958055;
+            padding:28px 20px;
+            border-radius:8px;
+            margin-top:14px;
+            margin-bottom:20px;
+            font-size:16px;
+            color:#149580;
+            font-weight:600;
+            text-align: center;
+        ">
+            <div>🎉 Congratulations!</div>
+            <div>We have found lenders you are eligible for. Review your matched options below.</div>
+        </div>
+    `;
+
+    if (!data || !data.matched_results || data.matched_results.length === 0) {
+        content.innerHTML = `
             <div style="
-                background:#e6f7ec;
-                border:1px solid #14958055;
-                padding:28px 20px;
+                background:#fff8e6;
+                border:1px solid #e6c77c;
+                padding:18px 20px;
                 border-radius:8px;
-                margin-top:14px;
                 margin-bottom:20px;
+                margin-top:14px;
                 font-size:16px;
-                color:#149580;
+                color:#8a6d1d;
                 font-weight:600;
-                text-align: center;
+                text-align:center;
             ">
-                <div>🎉 Congratulations!</div>
-                <div>We've found lenders you're eligible for you. Review your matched options below.</div>
+                <div>We have not found any eligible options on our portal this time.</div>
+                <div>One of our team will be happy to run a full market search for you.</div>
+            </div>
+
+            <button id="no-results-apply-btn"
+                style="
+                    background:#149580;
+                    color:white;
+                    border-radius:6px;
+                    font-size:12px;
+                    font-weight:600;
+                    line-height:36px;
+                    cursor:pointer;
+                    margin-top:10px;
+                    display: block;
+                    margin: 20px auto 0 auto;
+                    text-align: center;
+                ">
+                Request Call
+            </button>
+            <div id="restart-search-link"
+                 style="
+                    text-align:center;
+                    margin-top:16px;
+                    font-size:14px;
+                    color:#149580;
+                    cursor:pointer;
+                    font-weight:500;
+                 ">
+                Restart Search
             </div>
         `;
+        container.style.display = "block";
 
-        if (!data || !data.matched_results || data.matched_results.length === 0) {
-            content.innerHTML = `
-                <div style="
-                    background:#fff8e6;
-                    border:1px solid #e6c77c;
-                    padding:18px 20px;
-                    border-radius:8px;
-                    margin-bottom:20px;
-                    margin-top:14px;
-                    font-size:16px;
-                    color:#8a6d1d;
-                    font-weight:600;
-                    text-align:center;
-                ">
-                    <div>We haven’t found any eligible options on our portal this time.</div>
-                    <div>One of our team will be happy to run a full market search for you.</div>
-                </div>
-
-                <button id="no-results-apply-btn"
-                    style="
-                        background:#149580;
-                        color:white;
-                        border-radius:6px;
-                        font-size:12px;
-                        font-weight:600;
-                        line-height:36px;
-                        cursor:pointer;
-                        margin-top:10px;
-                        display: block;
-                        margin: 20px auto 0 auto;
-                        text-align: center;
-                    ">
-                    Request Call
-                </button>
-                <div id="restart-search-link"
-                     style="
-                        text-align:center;
-                        margin-top:16px;
-                        font-size:14px;
-                        color:#149580;
-                        cursor:pointer;
-                        font-weight:500;
-                     ">
-                    Restart Search
-                </div>
-            `;
-            container.style.display = "block";
-
-            if (activeForm) {
-                const productWrapper = activeForm.closest("div[id$='-form']");
-                if (productWrapper) productWrapper.style.display = "none";
-                const elementorWrapper = activeForm.closest(".elementor-widget-container");
-                if (elementorWrapper) elementorWrapper.style.display = "none";
-                const widget = activeForm.closest(".elementor-element.elementor-widget-html");
-                if (widget) widget.style.display = "none";
-                activeForm.style.display = "none";
-                const pagination = activeForm.querySelector(".forminator-pagination");
-                if (pagination) pagination.style.display = "none";
-                clearRadios(activeForm);
-            }
-
-            const noResultsApplyBtn = document.getElementById("no-results-apply-btn");
-            const restartSearch = document.getElementById("restart-search-link");
-            if (restartSearch) restartSearch.addEventListener("click", () => {
-                // clear compare selections before reload
-                try { sessionStorage.removeItem('funder_compare_ids'); } catch(e) {}
-                try { sessionStorage.removeItem('funder_selected_product'); } catch(e) {}
-                if (window._funder_compare_set) window._funder_compare_set = new Set();
-                updateCompareUI();
-                window.location.reload();
-            });
-            if (noResultsApplyBtn) {
-                noResultsApplyBtn.addEventListener("click", () => {
-                    // mark intentional hide so back-to-results observer doesn't immediately show button
-                    window._funderIntentionalHide = true;
-                    setTimeout(() => { window._funderIntentionalHide = false; }, 700);
-
-                    container.style.display = "none";
-                    const progressContainer = document.getElementById("progress-form-container");
-                    if (progressContainer) {
-                        // show with !important so it can override any previous important hide
-                        try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
-                        // ensure any elements previously hidden by our script are restored before showing
-                        document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
-                            try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
-                            try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
-                        });
-                    }
-                    fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ log: data.log || "No log available" })
-                    })
-                    .then(res => res.json())
-                    .then(resp => {
-                        const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
-                        if (cf7Hidden) cf7Hidden.value = resp.key;
-                    });
-                    forceTop();
-
-                    // update visibility immediately and after a short delay to catch CF7 init
-                    updateBackToResultsVisibility();
-                    setTimeout(updateBackToResultsVisibility, 300);
-                });
-            }
-
-            forceTop();
-            updateBackToResultsVisibility();
-            return;
+        if (activeForm) {
+            const productWrapper = activeForm.closest("div[id$='-form']");
+            if (productWrapper) productWrapper.style.display = "none";
+            const elementorWrapper = activeForm.closest(".elementor-widget-container");
+            if (elementorWrapper) elementorWrapper.style.display = "none";
+            const widget = activeForm.closest(".elementor-element.elementor-widget-html");
+            if (widget) widget.style.display = "none";
+            activeForm.style.display = "none";
+            const pagination = activeForm.querySelector(".forminator-pagination");
+            if (pagination) pagination.style.display = "none";
+            clearRadios(activeForm);
         }
+
+        const noResultsApplyBtn = document.getElementById("no-results-apply-btn");
+        const restartSearch = document.getElementById("restart-search-link");
+        if (restartSearch) restartSearch.addEventListener("click", () => {
+            try { sessionStorage.removeItem('funder_compare_ids'); } catch(e) {}
+            try { sessionStorage.removeItem('funder_selected_product'); } catch(e) {}
+            if (window._funder_compare_set) window._funder_compare_set = new Set();
+            updateCompareUI();
+            window.location.reload();
+        });
+        if (noResultsApplyBtn) {
+            noResultsApplyBtn.addEventListener("click", () => {
+                window._funderIntentionalHide = true;
+                setTimeout(() => { window._funderIntentionalHide = false; }, 700);
+
+                container.style.display = "none";
+                const progressContainer = document.getElementById("progress-form-container");
+                if (progressContainer) {
+                    try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
+                    document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+                        try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+                        try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+                    });
+                }
+                fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ log: data.log || "No log available" })
+                })
+                .then(res => res.json())
+                .then(resp => {
+                    const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
+                    if (cf7Hidden) cf7Hidden.value = resp.key;
+                });
+                forceTop();
+
+                updateBackToResultsVisibility();
+                setTimeout(updateBackToResultsVisibility, 300);
+            });
+        }
+
+        forceTop();
+        updateBackToResultsVisibility();
+        return;
+    }
+
+    // Your original rendering continues below this line (unchanged)
+
 
 const totalResults = allResults.length;
 
@@ -1203,7 +1312,7 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
             </div>
             <div>
                 <div style="${statLabel}">Max Term</div>
-                <div style="${statValue}">${best.max_term || ''} years</div>
+                <div style="${statValue}">${best.max_term_adjusted || best.max_term || ''} years</div>
             </div>
         </div>
 
@@ -1252,7 +1361,7 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
                     </div>
                     <div>
                         <div style="${statLabel}">Max Term</div>
-                        <div style="${statValue}">${opt.max_term || ''} years</div>
+                        <div style="${statValue}">${opt.max_term_adjusted || opt.max_term || ''} years</div>
                     </div>
                 </div>
 
@@ -1423,10 +1532,50 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
             });
         }
 
+        // --- AGE-BASED TERM REDUCTION LOGIC ---
+const userAgeRaw =
+    window._funder_form_answers?.["number-1"]?.values?.[0] ||
+    window._funder_form_answers?.["age"]?.values?.[0] ||
+    null;
+
+const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
+
+        if (userAge) {
+            results = results
+                .map(item => {
+                    const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
+                    const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
+
+                    // If lender has no max_age or max_term, leave unchanged
+                    if (!lenderMaxAge || !lenderMaxTerm) return item;
+
+                    const ageRemaining = lenderMaxAge - userAge;
+
+                    // If user already exceeds lender max age → remove lender
+                    if (ageRemaining <= 0) return null;
+
+                    // Adjust term if needed
+                    const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
+
+                    return {
+                        ...item,
+                        max_term_adjusted: adjustedTerm,
+                        product_term_display: adjustedTerm // ensures UI uses adjusted value
+                    };
+                })
+                .filter(Boolean); // remove nulls
+        }
+
         // PRODUCT TERM (explicit product_term or max_term)
         if (filters.product_term?.length) {
             results = results.filter(item => {
-                const term = String(item.product_term || item.product_term_display || item.max_term || '').toLowerCase();
+                const term = String(
+                    item.max_term_adjusted ||
+                    item.product_term ||
+                    item.product_term_display ||
+                    item.max_term ||
+                    ''
+                ).toLowerCase();
                 return filters.product_term.some(req => String(term).includes(String(req).toLowerCase()));
             });
         }
@@ -1501,20 +1650,32 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
                     (filters.product_term && filters.product_term.length)
                 );
 
-                // If no client filters, show server eligibleResults (server list authoritative for eligibility)
-                if (!hasFilters) {
-                    const base = Array.isArray(eligibleResults) ? eligibleResults.slice() : [];
-                    if (sortValue === "rate") {
-                        base.sort((a, b) => parseFloat(String(a.rates_from || '').replace(/[^\d\.]/g, '') || 0) - parseFloat(String(b.rates_from || '').replace(/[^\d\.]/g, '') || 0));
-                    } else if (sortValue === "annual_cost") {
-                        base.sort((a, b) => (a.total_cost || 0) - (b.total_cost || 0));
-                    } else if (sortValue === "ltv") {
-                        base.sort((a, b) => parseFloat(b.max_ltv || 0) - parseFloat(a.max_ltv || 0));
-                    }
-                    console.log('CONSOLE CHECK', { fullCount: fullResults.length, eligibleCount: eligibleResults.length, showingServerEligible: base.length });
-                    renderResultsList(base, base);
-                    return;
-                }
+        // If no client filters, show age‑adjusted fullResults (not raw eligibleResults)
+        if (!hasFilters) {
+            const base = Array.isArray(fullResults) ? fullResults.slice() : [];
+
+            if (sortValue === "rate") {
+                base.sort((a, b) =>
+                    parseFloat(String(a.rates_from || '').replace(/[^\d\.]/g, '') || 0) -
+                    parseFloat(String(b.rates_from || '').replace(/[^\d\.]/g, '') || 0)
+                );
+            } else if (sortValue === "annual_cost") {
+                base.sort((a, b) => (a.total_cost || 0) - (b.total_cost || 0));
+            } else if (sortValue === "ltv") {
+                base.sort((a, b) =>
+                    parseFloat(b.max_ltv || 0) - parseFloat(a.max_ltv || 0)
+                );
+            }
+
+            console.log('CONSOLE CHECK', {
+                fullCount: fullResults.length,
+                eligibleCount: eligibleResults.length,
+                showingServerEligible: base.length
+            });
+
+            renderResultsList(base, base);
+            return;
+        }
 
                 // Client filters active: filter fullResults (sheet is authoritative for display)
                 let filtered = getFilteredResults(filters, sortValue);
@@ -2337,7 +2498,9 @@ rows.forEach(rowDef => {
             td.innerText = it.max_ltv ? (it.max_ltv + '%') : '—';
 
         } else if (rowDef.key === 'max_term') {
-            td.innerText = it.max_term ? (it.max_term + ' years') : '—';
+            td.innerText = (it.max_term_adjusted || it.max_term)
+            ? ((it.max_term_adjusted || it.max_term) + ' years')
+            : '—';
 
         } else if (rowDef.key === 'fees') {
             td.innerText = it.product_fee || it.fee || '—';
