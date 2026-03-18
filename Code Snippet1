@@ -230,18 +230,51 @@ function funder_script_shortcode() {
 </style>
 
 <script>
-window.progressHandler = () => {};
 
-<script>
-window.progressHandler = () => {};   // placeholder
+window.progressHandler = () => {};   // placeholder so early calls don't break
 
-// ⭐ REAL HANDLER — moved out of renderResultsList()
+    window.forceTop = () => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+};
+
+   function updateBackToResultsVisibility() {
+        const btn = document.getElementById('back-to-results-btn');
+        if (!btn) return;
+
+        // Respect intentional hides from your flow
+        if (window._funderIntentionalHide) {
+            btn.style.display = 'none';
+            return;
+        }
+
+        // Use rAF for the fastest reliable paint-aware check
+        requestAnimationFrame(() => {
+            if (isCF7Visible() || isProgressVisible()) {
+                // show immediately (no animation delay)
+                btn.style.display = 'block';
+            } else {
+                btn.style.display = 'none';
+            }
+        });
+    }
+
+// ⭐ REAL HANDLER — correct scope, safe, complete
 window.progressHandler = () => {
     window._funderIntentionalHide = true;
     setTimeout(() => { window._funderIntentionalHide = false; }, 700);
 
-    container.style.display = "none";
+    // Hide all result-related containers
+    const resultsContainer = document.getElementById("results-container");
+    if (resultsContainer) resultsContainer.style.display = "none";
 
+    const noResultsContainer = document.getElementById("no-results-container");
+    if (noResultsContainer) noResultsContainer.style.display = "none";
+
+    const buildingJourneyContainer = document.getElementById("building-journey-container");
+    if (buildingJourneyContainer) buildingJourneyContainer.style.display = "none";
+
+    // Show progress form
     const progressContainer = document.getElementById("progress-form-container");
     if (progressContainer) {
         document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
@@ -252,10 +285,11 @@ window.progressHandler = () => {
         catch(e) { progressContainer.style.display = 'block'; }
     }
 
+    // Log
     fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ log: data.log || "No log available" })
+        body: JSON.stringify({ log: window._firstFormLog || "No log available" })
     })
     .then(res => res.json())
     .then(resp => {
@@ -263,7 +297,8 @@ window.progressHandler = () => {
         if (cf7Hidden) cf7Hidden.value = resp.key;
     });
 
-    forceTop();
+    // Scroll + visibility
+    if (window.forceTop) window.forceTop();
     updateBackToResultsVisibility();
     setTimeout(updateBackToResultsVisibility, 300);
 };
@@ -1903,27 +1938,6 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
                 if (isProgressVisible()) btn.style.display = 'block';
             }
         }, interval);
-    }
-
-    function updateBackToResultsVisibility() {
-        const btn = document.getElementById('back-to-results-btn');
-        if (!btn) return;
-
-        // Respect intentional hides from your flow
-        if (window._funderIntentionalHide) {
-            btn.style.display = 'none';
-            return;
-        }
-
-        // Use rAF for the fastest reliable paint-aware check
-        requestAnimationFrame(() => {
-            if (isCF7Visible() || isProgressVisible()) {
-                // show immediately (no animation delay)
-                btn.style.display = 'block';
-            } else {
-                btn.style.display = 'none';
-            }
-        });
     }
 
     // Compare UI helpers
