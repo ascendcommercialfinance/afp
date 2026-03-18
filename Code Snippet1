@@ -673,41 +673,69 @@ document.addEventListener("DOMContentLoaded", function () {
     diagnostics.forEach(d => {
         if (!d || !d.funder_id || !Array.isArray(d.reasons)) return;
         const failedHard = d.reasons.some(r => HARD_FAILURES.includes(r));
-        if (failedHard) hardFailMap.add(d.funder_id);
+        if (failedHard) hardFailMap.add(d.matching_id);
     });
 
     // Build togglePool = adjusted results minus hard failures
     const allResultsRaw = Array.isArray(data.all_results) ? data.all_results : [];
 
-    // --- AGE-BASED TERM REDUCTION LOGIC ---
-    const userAgeRaw =
-        window._funder_form_answers?.["number-1"]?.values?.[0] ||
-        window._funder_form_answers?.["age"]?.values?.[0] ||
-        null;
 
-    const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
 
     // Use backend values exactly as sent — no JS age adjustment needed
 let adjustedResultsRaw = allResultsRaw.slice();
             
 
-    // Build togglePool from adjusted results (NOT allResultsRaw)
-    const togglePool = adjustedResultsRaw.filter(item => {
-        if (!item || !item.funder_id) return false;
-        return !hardFailMap.has(item.funder_id);
-    });
-    
-    // --- AGE-ADJUST matched_results as well (for eligibleResults) ---
-    const matchedRaw = Array.isArray(data.matched_results) ? data.matched_results : [];
-    // Use backend values exactly as sent — no JS age adjustment needed
+    // --- AGE-BASED TERM REDUCTION LOGIC (APPLY TO ALL RESULTS BEFORE ANY FILTERING) ---
+const userAgeRaw =
+    window._funder_form_answers?.["number-1"]?.values?.[0] ||
+    window._funder_form_answers?.["age"]?.values?.[0] ||
+    null;
+
+const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
+
+// --- AGE-BASED TERM REDUCTION LOGIC (USING BORROWER AGE FROM FORM FIELD number-6) ---
+
+// Borrower age from Forminator
+const borrowerAgeRaw =
+    window._funder_form_answers?.["number-6"]?.values?.[0] ||
+    null;
+
+const borrowerAge = borrowerAgeRaw ? parseInt(borrowerAgeRaw, 10) : null;
+
+const ageAdjustedAll = adjustedResultsRaw.map(item => {
+    const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
+    const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
+
+    // If no borrower age or no lender limits → leave unchanged
+    if (!borrowerAge || !lenderMaxAge || !lenderMaxTerm) return item;
+
+    const ageRemaining = lenderMaxAge - borrowerAge;
+
+    // If borrower already exceeds lender max age → leave unchanged
+    if (ageRemaining <= 0) return item;
+
+    const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
+
+    return {
+        ...item,
+        max_term_adjusted: adjustedTerm,
+        product_term_display: adjustedTerm
+    };
+});
+
+// Build togglePool from age-adjusted results (NOT raw results)
+const togglePool = ageAdjustedAll.filter(item => {
+    if (!item || !item.funder_id) return false;
+    return !hardFailMap.has(item.matching_id);
+});
+
+// matched_results already age-adjusted by backend
+const matchedRaw = Array.isArray(data.matched_results) ? data.matched_results : [];
 let adjustedMatched = matchedRaw.slice();
 
-    // eligible = backend-approved, age-adjusted
-    eligibleResults = adjustedMatched.slice();
-
-    // soft pool = all results except hard failures
-    fullResults = togglePool.slice();
-    allResults = togglePool.slice();
+eligibleResults = adjustedMatched.slice();
+fullResults = togglePool.slice();
+allResults = togglePool.slice();
 
     let html = "";
 
@@ -940,39 +968,6 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         const resetBtn = document.getElementById("reset-form");
         const progressBtn = document.getElementById("progress-btn");
 
-        const progressHandler = () => {
-            // mark intentional hide so back-to-results observer doesn't immediately show button
-            window._funderIntentionalHide = true;
-            setTimeout(() => { window._funderIntentionalHide = false; }, 700);
-
-            container.style.display = "none";
-            const progressContainer = document.getElementById("progress-form-container");
-            if (progressContainer) {
-                // Before showing, restore any elements we previously forced-hidden
-                document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
-                    try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
-                    try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
-                });
-                // show with !important so it can override any previous important hide
-                try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
-            }
-            fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ log: data.log || "No log available" })
-            })
-            .then(res => res.json())
-            .then(resp => {
-                const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
-                if (cf7Hidden) cf7Hidden.value = resp.key;
-            });
-            forceTop();
-
-            // update visibility immediately and after a short delay to catch CF7 init
-            updateBackToResultsVisibility();
-            setTimeout(updateBackToResultsVisibility, 300);
-        };
-
         if (resetBtn) {
             resetBtn.addEventListener("click", () => {
                 // clear compare selections before reload so compare button doesn't persist
@@ -988,6 +983,15 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         if (noResultsApplyBtn) noResultsApplyBtn.addEventListener("click", progressHandler);
 
         if (window._funder_form_answers) preactivateRateAndPropToggles(window._funder_form_answers);
+
+        // ⭐ Add this once — catches clicks on dynamically-created no-results button
+        document.addEventListener("click", (e) => {
+            const btn = e.target.closest("#no-results-apply-btn");
+            if (!btn) return;
+
+            console.log("DELEGATION FIRED — calling progressHandler");
+            window.progressHandler(); // ⭐ call the global version
+        });
 
         wireFilterControls();
         applyFiltersAndSort();
@@ -1155,31 +1159,59 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
     // Safer renderResultsList using matching_id as authoritative identifier and Load more (append + animation)
     function renderResultsList(list, fullFilteredList) {
+
+            container.style.display = "none";
+            const progressContainer = document.getElementById("progress-form-container");
+            if (progressContainer) {
+                document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+                    try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+                    try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+                    });
+                    try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
+                }
+                fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ log: data.log || "No log available" })
+                })
+                .then(res => res.json())
+                .then(resp => {
+                    const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
+                    if (cf7Hidden) cf7Hidden.value = resp.key;
+                });
+                forceTop();
+                updateBackToResultsVisibility();
+                setTimeout(updateBackToResultsVisibility, 300);
+            };
         const listContainer = document.getElementById("results-list");
         if (!listContainer) return;
 
         const source = Array.isArray(fullFilteredList) && fullFilteredList.length ? fullFilteredList.slice() : Array.isArray(list) ? list.slice() : [];
 
         if (!source || source.length === 0) {
-            listContainer.innerHTML = `
-                <div style="
-                    background:#fff8e6;
-                    border:1px solid #e6c77c;
-                    padding:14px 16px;
-                    border-radius:8px;
-                    margin-top:10px;
-                    font-size:14px;
-                    color:#8a6d1d;
-                    text-align:center;
-                ">
-                    No results match your current filters. Try adjusting your selections.
-                </div>
-            `;
-            console.log('RENDER DEBUG: source empty');
-            // update back-to-results visibility after rendering
-            updateBackToResultsVisibility();
-            return;
+        listContainer.innerHTML = `
+            <div style="
+                background:#fff8e6;
+                border:1px solid #e6c77c;
+                padding:14px 16px;
+                border-radius:8px;
+                margin-top:10px;
+                font-size:14px;
+                color:#8a6d1d;
+                text-align:center;
+            ">
+                No results match your current filters. Try adjusting your selections.
+                <br><br>
+                <button id="no-results-apply-btn"
+                    style="background:#149580; color:white; padding:10px 16px; border-radius:6px; font-weight:600; cursor:pointer;">
+                    Request a Call
+                </button>
+            </div>
+        `;
+        updateBackToResultsVisibility();
+        return;
         }
+    
 
         console.log('RENDER DEBUG: sourceCount', source.length, 'sampleSource', source.slice(0,5));
 
@@ -1234,7 +1266,7 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
             const bestMid = String(best.matching_id || best.matching_id_value || best.id || best.product_id || best.lending_product || '').trim();
             const checkedAttr = window._funder_compare_set.has(bestMid) ? 'checked' : '';
             cardsHtml += `
-    <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
+        <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
         <label class="compare-checkbox">
             <input type="checkbox" class="compare-select" data-matching-id="${bestMid}" ${checkedAttr}> Compare
         </label>
@@ -1272,8 +1304,8 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
                 Apply
             </button>
         </div>
-    </div>
-`;
+            </div>
+        `;
         }
 
         // If Best Match was included above, avoid duplicating it in page items
@@ -1403,11 +1435,20 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
         // ensure compare UI state is correct after render
         updateCompareUI();
-    }
+        }
 
-    // ---------- Enhanced filtering with LTV and serviceability ----------
+                        // ⭐ Delegated listener — always active
+            document.addEventListener("click", (e) => {
+                const btn = e.target.closest("#no-results-apply-btn");
+                if (!btn) return;
 
-    function getActiveFilters() {
+                console.log("DELEGATION FIRED — calling progressHandler");
+                window.progressHandler();
+            });
+
+        // ---------- Enhanced filtering with LTV and serviceability ----------
+
+        function getActiveFilters() {
         const active = {};
         document.querySelectorAll(".btl-toggle.active").forEach(btn => {
             const key = btn.dataset.toggle;
@@ -1417,29 +1458,29 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         });
         if (active.zero_fee && active.zero_fee.length) active.zero_fee = true;
         return active;
-    }
+        }
 
-    function normaliseRateType(rt) {
-        rt = String(rt || '').toLowerCase();
-        if (rt.includes('fix') || rt.includes('fixed')) return 'fixed';
-        if (rt.includes('track') || rt.includes('tracker')) return 'tracker';
-        if (rt.includes('discount')) return 'variable';
-        if (rt.includes('var') || rt.includes('variable') || rt.includes('svr')) return 'variable';
-        return rt;
-    }
+        function normaliseRateType(rt) {
+            rt = String(rt || '').toLowerCase();
+            if (rt.includes('fix') || rt.includes('fixed')) return 'fixed';
+            if (rt.includes('track') || rt.includes('tracker')) return 'tracker';
+            if (rt.includes('discount')) return 'variable';
+            if (rt.includes('var') || rt.includes('variable') || rt.includes('svr')) return 'variable';
+            return rt;
+        }
 
-    function parseFeeNumeric(feeRaw) {
-        if (feeRaw === undefined || feeRaw === null) return null;
-        const s = String(feeRaw).trim().toLowerCase();
-        if (s === '' || s === 'n/a' || s === 'none') return null;
-        if (s.includes('free') || s.includes('zero') || s === '0' || s === '£0' || s.includes('no fee')) return 0;
-        const cleaned = s.replace(/[^0-9.\-]/g, '');
-        if (cleaned === '' || cleaned === '.' || cleaned === '-') return null;
-        const n = parseFloat(cleaned);
-        return isNaN(n) ? null : n;
-    }
+        function parseFeeNumeric(feeRaw) {
+            if (feeRaw === undefined || feeRaw === null) return null;
+            const s = String(feeRaw).trim().toLowerCase();
+            if (s === '' || s === 'n/a' || s === 'none') return null;
+            if (s.includes('free') || s.includes('zero') || s === '0' || s === '£0' || s.includes('no fee')) return 0;
+            const cleaned = s.replace(/[^0-9.\-]/g, '');
+            if (cleaned === '' || cleaned === '.' || cleaned === '-') return null;
+            const n = parseFloat(cleaned);
+            return isNaN(n) ? null : n;
+        }
 
-    function getFilteredResults(filters, sortValue) {
+        function getFilteredResults(filters, sortValue) {
         const src = Array.isArray(fullResults) ? fullResults.slice() : [];
         let results = src.filter(item => !!item);
 
@@ -1477,50 +1518,17 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
             });
         }
 
-        // --- AGE-BASED TERM REDUCTION LOGIC ---
-const userAgeRaw =
-    window._funder_form_answers?.["number-1"]?.values?.[0] ||
-    window._funder_form_answers?.["age"]?.values?.[0] ||
-    null;
-
-const userAge = userAgeRaw ? parseInt(userAgeRaw, 10) : null;
-
-        if (userAge) {
-            results = results
-                .map(item => {
-                    const lenderMaxAge = item.max_age ? parseInt(item.max_age, 10) : null;
-                    const lenderMaxTerm = item.max_term ? parseInt(item.max_term, 10) : null;
-
-                    // If lender has no max_age or max_term, leave unchanged
-                    if (!lenderMaxAge || !lenderMaxTerm) return item;
-
-                    const ageRemaining = lenderMaxAge - userAge;
-
-                    // If user already exceeds lender max age → remove lender
-                    if (ageRemaining <= 0) return null;
-
-                    // Adjust term if needed
-                    const adjustedTerm = Math.min(lenderMaxTerm, ageRemaining);
-
-                    return {
-                        ...item,
-                        max_term_adjusted: adjustedTerm,
-                        product_term_display: adjustedTerm // ensures UI uses adjusted value
-                    };
-                })
-                .filter(Boolean); // remove nulls
-        }
+        
 
         // PRODUCT TERM (explicit product_term or max_term)
         if (filters.product_term?.length) {
             results = results.filter(item => {
                 const term = String(
-                    item.max_term_adjusted ||
-                    item.product_term ||
-                    item.product_term_display ||
-                    item.max_term ||
-                    ''
-                ).toLowerCase();
+                item.max_term_adjusted ||
+                item.product_term ||
+                item.max_term ||
+                ''
+            ).toLowerCase();
                 return filters.product_term.some(req => String(term).includes(String(req).toLowerCase()));
             });
         }
