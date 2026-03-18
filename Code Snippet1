@@ -230,6 +230,44 @@ function funder_script_shortcode() {
 </style>
 
 <script>
+window.progressHandler = () => {};
+
+<script>
+window.progressHandler = () => {};   // placeholder
+
+// ⭐ REAL HANDLER — moved out of renderResultsList()
+window.progressHandler = () => {
+    window._funderIntentionalHide = true;
+    setTimeout(() => { window._funderIntentionalHide = false; }, 700);
+
+    container.style.display = "none";
+
+    const progressContainer = document.getElementById("progress-form-container");
+    if (progressContainer) {
+        document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+            try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+            try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+        });
+        try { progressContainer.style.setProperty('display', 'block', 'important'); }
+        catch(e) { progressContainer.style.display = 'block'; }
+    }
+
+    fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log: data.log || "No log available" })
+    })
+    .then(res => res.json())
+    .then(resp => {
+        const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
+        if (cf7Hidden) cf7Hidden.value = resp.key;
+    });
+
+    forceTop();
+    updateBackToResultsVisibility();
+    setTimeout(updateBackToResultsVisibility, 300);
+};
+
 let fullResults = [];
 let eligibleResults = [];
 let allResults = [];
@@ -1164,45 +1202,13 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
         const container = document.getElementById("results-container");
         const data = window._funder_form_answers || {};
-      // ⭐ GLOBAL progressHandler — always available inside this function
-window.progressHandler = () => {
-    window._funderIntentionalHide = true;
-    setTimeout(() => { window._funderIntentionalHide = false; }, 700);
 
-    container.style.display = "none";
-
-    const progressContainer = document.getElementById("progress-form-container");
-    if (progressContainer) {
-        document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
-            try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
-            try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
-        });
-        try { progressContainer.style.setProperty('display', 'block', 'important'); }
-        catch(e) { progressContainer.style.display = 'block'; }
-    }
-
-    fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ log: data.log || "No log available" })
-    })
-    .then(res => res.json())
-    .then(resp => {
-        const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
-        if (cf7Hidden) cf7Hidden.value = resp.key;
-    });
-
-    forceTop();
-    updateBackToResultsVisibility();
-    setTimeout(updateBackToResultsVisibility, 300);
-};
-
-// ⭐ DO NOT redeclare — reuse existing variable if already declared above
-let listContainer = document.getElementById("results-list");
+// ⭐ DO NOT redeclare — only assign
+listContainer = document.getElementById("results-list");
 if (!listContainer) return;
 
-// ⭐ Authoritative source selection (fullFilteredList → list → empty)
-const source = Array.isArray(fullFilteredList) && fullFilteredList.length
+// ⭐ DO NOT redeclare — only assign
+source = Array.isArray(fullFilteredList) && fullFilteredList.length
     ? fullFilteredList.slice()
     : Array.isArray(list)
         ? list.slice()
