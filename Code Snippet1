@@ -91,7 +91,7 @@ function funder_script_shortcode() {
   padding: 0px 7px;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-  z-index: 1000000;
+  z-index: 99999999;
   font-weight: 700;
   cursor: pointer;
   display: none;
@@ -133,7 +133,7 @@ function funder_script_shortcode() {
   align-items: center;
   gap: 6px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.06);
-  z-index: 2;
+  z-index: 0;
 }
 .compare-checkbox input[type="checkbox"] {
   width: 14px;
@@ -307,7 +307,38 @@ document.addEventListener("DOMContentLoaded", function () {
     // Selected product for CF7 (persist until submission)
     if (!window._funder_selected_product) {
         window._funder_selected_product = null;
-    }
+        }
+
+        document.addEventListener("click", function (e) {
+        const applyBtn = e.target.closest(".apply-now-btn, .apply-button, .apply-btn, .compare-product-apply");
+        if (!applyBtn) return;
+
+        window.scrollTo({
+            top: 0,
+            behavior: "smooth"
+        });
+    });
+
+    let compareScrollPosition = 0;
+
+    document.addEventListener("click", function (e) {
+        const compareBtn = e.target.closest(".compare-btn, .compare-product-btn");
+        if (!compareBtn) return;
+
+        // Save the scroll position
+        compareScrollPosition = window.scrollY;
+    });
+
+    document.addEventListener("click", function (e) {
+    const closeBtn = e.target.closest(".compare-close, .compare-product-close");
+    if (!closeBtn) return;
+
+    // Restore scroll position smoothly
+        window.scrollTo({
+            top: compareScrollPosition,
+            behavior: "smooth"
+        });
+    });
 
     let formJourneyStarted = false;
     let activeForm = document.querySelector("#forminator-module-10159");
@@ -499,6 +530,24 @@ document.addEventListener("DOMContentLoaded", function () {
         return null;
     }
 
+    document.addEventListener("change", function (e) {
+        const radio = e.target.closest(".final-radio input[type='radio']");
+        if (!radio) return;
+
+        const form = radio.closest("form");
+        if (!form) return;
+
+        // Show loading overlay
+        const overlay = document.getElementById("results-loading-overlay");
+        if (overlay) overlay.classList.add("active");
+
+        // Give the overlay a moment to appear before submitting
+        setTimeout(() => {
+            const submitBtn = form.querySelector(".forminator-button-submit");
+            if (submitBtn) submitBtn.click();
+        }, 150);
+    });
+
     function applyScrollLockIfNeeded() {
         if (!activeForm) return;
         if (!formJourneyStarted) return;
@@ -527,6 +576,25 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!form) return;
         stepObserver.observe(form, { childList: true, subtree: true });
     }
+
+    // Hide overlay when results appear
+    const resultsObserver = new MutationObserver(() => {
+        const results = document.querySelector("#funder-results");
+
+        if (results && results.style.display !== "none") {
+            const overlay = document.getElementById("results-loading-overlay");
+            if (overlay) overlay.classList.remove("active");
+
+            resultsObserver.disconnect();
+        }
+    });
+
+    resultsObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["style"]
+    });
 
     // showForm: temporarily allow padding changes and keep Forminator suppression while switching
     function showForm(containerId, moduleId) {
@@ -772,8 +840,8 @@ allResults = togglePool.slice();
             background:#e6f7ec;
             border:1px solid #14958055;
             padding:28px 20px;
-            border-radius:8px;
-            margin-top:14px;
+            border-radius:6px;
+            margin-top:0px;
             margin-bottom:20px;
             font-size:16px;
             color:#149580;
@@ -781,7 +849,7 @@ allResults = togglePool.slice();
             text-align: center;
         ">
             <div>🎉 Congratulations!</div>
-            <div>We have found lenders you are eligible for. Review your matched options below.</div>
+            <div>We've found lenders you are eligible for. Review your matched options below.</div>
         </div>
     `;
 
@@ -872,7 +940,7 @@ allResults = togglePool.slice();
                 fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ log: data.log || "No log available" })
+                    body: JSON.stringify({ log: window._funder_form_answers })
                 })
                 .then(res => res.json())
                 .then(resp => {
@@ -904,8 +972,8 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
 
         html += `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
-                <button id="toggle-filters" style="flex:1; height:34px; padding:0 12px; background:#149580; color:white; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center;">Filters</button>
-                <select id="btl-sort" style="flex:1; height:34px; padding:0 10px; border-radius:6px; border:1px solid #ccc; font-size:13px; background:white; cursor:pointer;">
+                <button id="toggle-filters" style="flex:1; height:34px; padding:0 12px; background:#149580; color:white; border-radius:4px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center;">Filters</button>
+                <select id="btl-sort" style="flex:1; height:34px; padding:0 10px; border-radius:4px; border:1px solid #ccc; font-size:13px; background:white; cursor:pointer;">
                     <option value="rate" selected>Lowest rate</option>
                     <option value="annual_cost">Lowest annual cost</option>
                     <option value="ltv">Highest LTV</option>
@@ -1061,6 +1129,8 @@ applyFiltersAndSort();
 
         updateBackToResultsVisibility();
     }
+
+    
 
     /* -------------------------
        RENDER + FILTER HELPERS
@@ -2692,8 +2762,11 @@ tr.appendChild(td);
             const set = window._funder_compare_set || new Set();
             if (cb.checked) {
                 if (set.size >= 3) {
-                    // revert and notify
-                    cb.checked = false;
+                // revert immediately (prevents click issues)
+                cb.checked = false;
+
+                // show toast AFTER the click event finishes
+                setTimeout(() => {
                     const prev = document.getElementById('compare-limit-toast');
                     if (!prev) {
                         const t = document.createElement('div');
@@ -2712,8 +2785,10 @@ tr.appendChild(td);
                         document.body.appendChild(t);
                         setTimeout(() => { try { t.remove(); } catch(e) {} }, 1400);
                     }
-                    return;
-                }
+                }, 50); // <-- tiny delay fixes the click interference
+
+                return;
+            }
                 set.add(mid);
             } else {
                 set.delete(mid);
@@ -2744,7 +2819,98 @@ tr.appendChild(td);
     }
 
 }); // DOMContentLoaded
+
+document.addEventListener("DOMContentLoaded", function () {
+    console.log("ASC scroll script initialised");
+
+    // ===============================
+    // GLOBAL STORAGE
+    // ===============================
+    let compareReturnY = 0;
+    let applyReturnY = 0;
+    let applyFormOpen = false;
+
+    function findCardFrom(el) {
+        return el.closest(".result-card, .lender-card, .product-card, .funder-card, .result-item, .card");
+    }
+
+    // ===============================
+    // COMPARE: save card position
+    // ===============================
+    document.addEventListener("click", function (e) {
+        const compareBtn = e.target.closest("#compare-btn");
+        if (!compareBtn) return;
+
+        const card = findCardFrom(compareBtn);
+        if (card) {
+            const rect = card.getBoundingClientRect();
+            compareReturnY = rect.top + window.scrollY;
+        }
+    }, true);
+
+    // ===============================
+    // COMPARE: restore on close (✕)
+    // ===============================
+    document.addEventListener("click", function (e) {
+        if (!e.target.closest(".close-x")) return;
+
+        setTimeout(() => {
+            window.scrollTo({ top: compareReturnY, behavior: "smooth" });
+        }, 150);
+    }, true);
+
+    // ===============================
+    // APPLY: save card position ONLY
+    // ===============================
+    document.addEventListener("click", function (e) {
+        const applyBtn = e.target.closest(".apply-btn");
+        if (!applyBtn) return;
+
+        const card = findCardFrom(applyBtn);
+        if (card) {
+            const rect = card.getBoundingClientRect();
+            applyReturnY = rect.top + window.scrollY;
+            console.log("Saved APPLY return Y:", applyReturnY);
+        }
+
+        applyFormOpen = true;
+    }, true);
+
+    // ===============================
+    // MUTATION OBSERVER: detect CF7 form injection
+    // ===============================
+    const observer = new MutationObserver(() => {
+        if (!applyFormOpen) return;
+
+        const form = document.querySelector(".wpcf7-form");
+        if (!form) return;
+
+        console.log("APPLY FORM DETECTED — forcing scroll to top");
+
+        history.replaceState(null, "", window.location.pathname);
+        window.scrollTo({ top: 0, behavior: "auto" });
+
+        applyFormOpen = false;
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // ===============================
+    // APPLY: restore on close (X)
+    // ===============================
+    document.addEventListener("click", function (e) {
+        const text = e.target.textContent.trim();
+        const isClose = (text === "X" || text === "✕");
+        if (!isClose) return;
+
+        setTimeout(() => {
+            window.scrollTo({ top: applyReturnY, behavior: "smooth" });
+        }, 150);
+    }, true);
+
+});
 </script>
+
 
 <?php
     return ob_get_clean();
