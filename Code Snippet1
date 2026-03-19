@@ -230,83 +230,12 @@ function funder_script_shortcode() {
 </style>
 
 <script>
-
-window.progressHandler = () => {};   // placeholder so early calls don't break
-
-    window.forceTop = () => {
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-};
-
-   function updateBackToResultsVisibility() {
-        const btn = document.getElementById('back-to-results-btn');
-        if (!btn) return;
-
-        // Respect intentional hides from your flow
-        if (window._funderIntentionalHide) {
-            btn.style.display = 'none';
-            return;
-        }
-
-        // Use rAF for the fastest reliable paint-aware check
-        requestAnimationFrame(() => {
-            if (isCF7Visible() || isProgressVisible()) {
-                // show immediately (no animation delay)
-                btn.style.display = 'block';
-            } else {
-                btn.style.display = 'none';
-            }
-        });
-    }
-
-// ⭐ REAL HANDLER — correct scope, safe, complete
-window.progressHandler = () => {
-    window._funderIntentionalHide = true;
-    setTimeout(() => { window._funderIntentionalHide = false; }, 700);
-
-    // Hide all result-related containers
-    const resultsContainer = document.getElementById("results-container");
-    if (resultsContainer) resultsContainer.style.display = "none";
-
-    const noResultsContainer = document.getElementById("no-results-container");
-    if (noResultsContainer) noResultsContainer.style.display = "none";
-
-    const buildingJourneyContainer = document.getElementById("building-journey-container");
-    if (buildingJourneyContainer) buildingJourneyContainer.style.display = "none";
-
-    // Show progress form
-    const progressContainer = document.getElementById("progress-form-container");
-    if (progressContainer) {
-        document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
-            try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
-            try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
-        });
-        try { progressContainer.style.setProperty('display', 'block', 'important'); }
-        catch(e) { progressContainer.style.display = 'block'; }
-    }
-
-    // Log
-    fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ log: window._firstFormLog || "No log available" })
-    })
-    .then(res => res.json())
-    .then(resp => {
-        const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
-        if (cf7Hidden) cf7Hidden.value = resp.key;
-    });
-
-    // Scroll + visibility
-    if (window.forceTop) window.forceTop();
-    updateBackToResultsVisibility();
-    setTimeout(updateBackToResultsVisibility, 300);
-};
-
 let fullResults = [];
 let eligibleResults = [];
 let allResults = [];
 let lastRenderedList = [];
+
+window._compareWasOpenForApply = false;
 
 // Pagination globals for Load more
 let resultsOffset = 0;
@@ -329,6 +258,32 @@ const resultsPageSize = 10;
         // Fully block auto-scroll
     };
 })();
+
+document.addEventListener("click", function (e) {
+    const applyBtn = e.target.closest(".compare-product-apply");
+    if (!applyBtn) return;
+
+    // 1. Close the compare card
+    const compareCard = document.querySelector(".compare-card");
+    if (compareCard) {
+        compareCard.style.display = "none";
+        compareCard.classList.remove("active");
+    }
+
+    // 2. Close the overlay
+    const compareOverlay = document.getElementById("compare-overlay");
+    if (compareOverlay) {
+        compareOverlay.style.display = "none";
+        compareOverlay.classList.remove("active");
+    }
+
+    // 3. Unlock scroll
+    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
+
+    // 4. Mark that compare was open (for Back to Results)
+    window._compareWasOpenForApply = true;
+});
 
 document.addEventListener("DOMContentLoaded", function () {
     const onPortalPage = document.body.classList.contains("page-id-9549");
@@ -1041,6 +996,39 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         const resetBtn = document.getElementById("reset-form");
         const progressBtn = document.getElementById("progress-btn");
 
+        const progressHandler = () => {
+            // mark intentional hide so back-to-results observer doesn't immediately show button
+            window._funderIntentionalHide = true;
+            setTimeout(() => { window._funderIntentionalHide = false; }, 700);
+
+            container.style.display = "none";
+            const progressContainer = document.getElementById("progress-form-container");
+            if (progressContainer) {
+                // Before showing, restore any elements we previously forced-hidden
+                document.querySelectorAll('[data-funder-hidden="1"]').forEach(el => {
+                    try { el.style.removeProperty('display'); } catch(e) { el.style.display = ''; }
+                    try { el.removeAttribute('data-funder-hidden'); } catch(e) {}
+                });
+                // show with !important so it can override any previous important hide
+                try { progressContainer.style.setProperty('display', 'block', 'important'); } catch(e) { progressContainer.style.display = 'block'; }
+            }
+            fetch("/wp-admin/admin-ajax.php?action=store_first_form_log", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ log: data.log || "No log available" })
+            })
+            .then(res => res.json())
+            .then(resp => {
+                const cf7Hidden = document.querySelector('input[name="portal_log_key"]');
+                if (cf7Hidden) cf7Hidden.value = resp.key;
+            });
+            forceTop();
+
+            // update visibility immediately and after a short delay to catch CF7 init
+            updateBackToResultsVisibility();
+            setTimeout(updateBackToResultsVisibility, 300);
+        };
+
         if (resetBtn) {
             resetBtn.addEventListener("click", () => {
                 // clear compare selections before reload so compare button doesn't persist
@@ -1058,13 +1046,15 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         if (window._funder_form_answers) preactivateRateAndPropToggles(window._funder_form_answers);
 
         // ⭐ Add this once — catches clicks on dynamically-created no-results button
-        document.addEventListener("click", (e) => {
-            const btn = e.target.closest("#no-results-apply-btn");
-            if (!btn) return;
+document.addEventListener("click", (e) => {
+    const btn = e.target.closest("#no-results-apply-btn");
+    if (!btn) return;
+    progressHandler(); // same behaviour as Apply
+});
 
-            console.log("DELEGATION FIRED — calling progressHandler");
-            window.progressHandler(); // ⭐ call the global version
-        });
+// Existing code
+wireFilterControls();
+applyFiltersAndSort();
 
         wireFilterControls();
         applyFiltersAndSort();
@@ -1235,20 +1225,6 @@ const loanDisplay = loanAmount ? formatCurrencyZeroDecimals(loanAmount) : "";
         const listContainer = document.getElementById("results-list");
         if (!listContainer) return;
 
-        const container = document.getElementById("results-container");
-        const data = window._funder_form_answers || {};
-
-// ⭐ DO NOT redeclare — only assign
-listContainer = document.getElementById("results-list");
-if (!listContainer) return;
-
-// ⭐ DO NOT redeclare — only assign
-source = Array.isArray(fullFilteredList) && fullFilteredList.length
-    ? fullFilteredList.slice()
-    : Array.isArray(list)
-        ? list.slice()
-        : [];
-
         const source = Array.isArray(fullFilteredList) && fullFilteredList.length ? fullFilteredList.slice() : Array.isArray(list) ? list.slice() : [];
 
         if (!source || source.length === 0) {
@@ -1273,8 +1249,7 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
         `;
         updateBackToResultsVisibility();
         return;
-        }
-    
+    }
 
         console.log('RENDER DEBUG: sourceCount', source.length, 'sampleSource', source.slice(0,5));
 
@@ -1329,7 +1304,7 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
             const bestMid = String(best.matching_id || best.matching_id_value || best.id || best.product_id || best.lending_product || '').trim();
             const checkedAttr = window._funder_compare_set.has(bestMid) ? 'checked' : '';
             cardsHtml += `
-        <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
+    <div class="result-card new" style="${cardStyle}; margin-top: 20px;">
         <label class="compare-checkbox">
             <input type="checkbox" class="compare-select" data-matching-id="${bestMid}" ${checkedAttr}> Compare
         </label>
@@ -1367,8 +1342,8 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
                 Apply
             </button>
         </div>
-            </div>
-        `;
+    </div>
+`;
         }
 
         // If Best Match was included above, avoid duplicating it in page items
@@ -1498,20 +1473,11 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
 
         // ensure compare UI state is correct after render
         updateCompareUI();
-        }
+    }
 
-            // ⭐ Delegated listener — always active
-            document.addEventListener("click", (e) => {
-                const btn = e.target.closest("#no-results-apply-btn");
-                if (!btn) return;
+    // ---------- Enhanced filtering with LTV and serviceability ----------
 
-                console.log("DELEGATION FIRED — calling progressHandler");
-                window.progressHandler();
-            });
-
-        // ---------- Enhanced filtering with LTV and serviceability ----------
-
-        function getActiveFilters() {
+    function getActiveFilters() {
         const active = {};
         document.querySelectorAll(".btl-toggle.active").forEach(btn => {
             const key = btn.dataset.toggle;
@@ -1521,29 +1487,29 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
         });
         if (active.zero_fee && active.zero_fee.length) active.zero_fee = true;
         return active;
-        }
+    }
 
-        function normaliseRateType(rt) {
-            rt = String(rt || '').toLowerCase();
-            if (rt.includes('fix') || rt.includes('fixed')) return 'fixed';
-            if (rt.includes('track') || rt.includes('tracker')) return 'tracker';
-            if (rt.includes('discount')) return 'variable';
-            if (rt.includes('var') || rt.includes('variable') || rt.includes('svr')) return 'variable';
-            return rt;
-        }
+    function normaliseRateType(rt) {
+        rt = String(rt || '').toLowerCase();
+        if (rt.includes('fix') || rt.includes('fixed')) return 'fixed';
+        if (rt.includes('track') || rt.includes('tracker')) return 'tracker';
+        if (rt.includes('discount')) return 'variable';
+        if (rt.includes('var') || rt.includes('variable') || rt.includes('svr')) return 'variable';
+        return rt;
+    }
 
-        function parseFeeNumeric(feeRaw) {
-            if (feeRaw === undefined || feeRaw === null) return null;
-            const s = String(feeRaw).trim().toLowerCase();
-            if (s === '' || s === 'n/a' || s === 'none') return null;
-            if (s.includes('free') || s.includes('zero') || s === '0' || s === '£0' || s.includes('no fee')) return 0;
-            const cleaned = s.replace(/[^0-9.\-]/g, '');
-            if (cleaned === '' || cleaned === '.' || cleaned === '-') return null;
-            const n = parseFloat(cleaned);
-            return isNaN(n) ? null : n;
-        }
+    function parseFeeNumeric(feeRaw) {
+        if (feeRaw === undefined || feeRaw === null) return null;
+        const s = String(feeRaw).trim().toLowerCase();
+        if (s === '' || s === 'n/a' || s === 'none') return null;
+        if (s.includes('free') || s.includes('zero') || s === '0' || s === '£0' || s.includes('no fee')) return 0;
+        const cleaned = s.replace(/[^0-9.\-]/g, '');
+        if (cleaned === '' || cleaned === '.' || cleaned === '-') return null;
+        const n = parseFloat(cleaned);
+        return isNaN(n) ? null : n;
+    }
 
-        function getFilteredResults(filters, sortValue) {
+    function getFilteredResults(filters, sortValue) {
         const src = Array.isArray(fullResults) ? fullResults.slice() : [];
         let results = src.filter(item => !!item);
 
@@ -1938,6 +1904,27 @@ source = Array.isArray(fullFilteredList) && fullFilteredList.length
                 if (isProgressVisible()) btn.style.display = 'block';
             }
         }, interval);
+    }
+
+    function updateBackToResultsVisibility() {
+        const btn = document.getElementById('back-to-results-btn');
+        if (!btn) return;
+
+        // Respect intentional hides from your flow
+        if (window._funderIntentionalHide) {
+            btn.style.display = 'none';
+            return;
+        }
+
+        // Use rAF for the fastest reliable paint-aware check
+        requestAnimationFrame(() => {
+            if (isCF7Visible() || isProgressVisible()) {
+                // show immediately (no animation delay)
+                btn.style.display = 'block';
+            } else {
+                btn.style.display = 'none';
+            }
+        });
     }
 
     // Compare UI helpers
